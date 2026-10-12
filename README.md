@@ -31,6 +31,42 @@ Each list provides:
 - Cancellation when a drag is released outside the list or the page is hidden.
 - Protection against editing an outdated list after settings or a profile change.
 
+### Orientation and growth direction
+
+Arrange cooldown icons and buff bars horizontally or vertically. Horizontal layouts can grow left or right; vertical layouts can grow up or down. For buff bars, orientation controls how the bars are arranged.
+
+### Buff bar textures and appearance
+
+Choose Blizzard's default bar texture or one of the textures supplied by EllesmereUI. Customize the buff fill and background colors, border color and thickness, buff name and timer font sizes, and text color. Spell icons, buff names, and remaining time can each be shown or hidden independently.
+
+### EllesmereUI appearance matching
+
+Buff Bars, Cooldown Bar, and Reminders can inherit fonts, text colors, and borders from a selected EllesmereUI Action Bar. Buff bars also inherit that action bar's background when it is enabled, while keeping their own fill and layout settings.
+
+Choose **Custom** to configure appearance independently. Cooldown icons and reminders have their own text size, text color, and icon-border controls. Appearance inheritance requires **EllesmereUIActionBars**.
+
+### Combat and target visibility
+
+The enabled cooldown tracker appears during combat or while targeting a unit you can attack. Buff bars offer three visibility choices: **Always**, **In combat**, or **In combat or with an attackable target**. EllesmereUI Unlock Mode keeps enabled trackers visible for positioning outside combat.
+
+### Range dimming and ready glows
+
+Cooldown icons can dim spells that are out of range of the current target and glow when spells are ready during combat. Both features can be toggled independently. Ready glows follow **EllesmereUI Action Bars > Bar Animations > Custom Proc Glow**, including its enabled state and style settings. A simple edge highlight provides a standalone fallback when the EllesmereUI glow engine is unavailable.
+
+### EllesmereUI settings and previews
+
+Dedicated **Buff Bars**, **Cooldown Bar**, and **Reminders** settings pages include live previews that reflect layout and appearance changes. Right-clicking a tracker opens its corresponding EllesmereUI settings when the integration is available.
+
+Use `/euict buff`, `/euict cd`, or `/euict reminders` to open the corresponding integrated settings directly. The standalone settings also include buttons to open these pages.
+
+### Unlock Mode and position persistence
+
+Move buff bars, cooldown icons, and reminders through EllesmereUI Unlock Mode, with inactive or sample content available when needed for positioning. Position changes also update the active Blizzard Edit Mode layout, preventing an older saved position from returning after a reload or when entering the world.
+
+### Reminder spacing
+
+Adjust the spacing between reminder rows from the Reminders **Display** page, replacing the original fixed spacing.
+
 ### Shared components
 
 `OrderedList` and `TrackingEditor` in [EllesmereIntegration.lua](EllesmereIntegration.lua) implement the shared list and add controls. Each page supplies its settings list, labels, and matching explanation. Reordering, adding, and removing entries refresh the appropriate tracker and its EllesmereUI page cache.
@@ -41,13 +77,13 @@ The fork installs as `EllesmereUICooldownTracker` and uses its own saved variabl
 
 Settings and profiles are stored separately from the original addon. To transfer a setup, export a profile from the original addon and import it on this fork's Profiles page; the shared `FCT1` profile format remains compatible.
 
-The EllesmereUI sidebar label is **Cooldown Tracker (Ellesmere)** because the public plugin API reserves labels beginning with `EllesmereUI` or `EUI` for its own modules.
+The EllesmereUI sidebar label is **Cooldown Tracker**.
 
 ## Installation and use
 
 1. Copy the addon files into your WoW installation's `Interface/AddOns/EllesmereUICooldownTracker` folder, with `EllesmereUICooldownTracker.toc` directly inside it.
 2. Enable **EllesmereUI** to use the integrated settings pages. **EllesmereUIActionBars** is optional and supplies the appearance and glow settings used by the integration.
-3. Run `/reload`, open EllesmereUI, and select **Cooldown Tracker (Ellesmere)** to manage the tracking lists.
+3. Run `/reload`, open EllesmereUI, and select **Cooldown Tracker** to manage the tracking lists.
 
 The underlying addon also provides its standalone settings through `/euict` or `/ellesmerecooldowns` when EllesmereUI is unavailable.
 

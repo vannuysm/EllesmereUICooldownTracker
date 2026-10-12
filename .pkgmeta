@@ -1,0 +1,10 @@
+package-as: EllesmereUICooldownTracker
+
+ignore:
+    - .gitignore
+    - .pkgmeta
+    - .gitattributes
+    - README.md
+    - *.log
+    - /.github/
+    - Logo.png

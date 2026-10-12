@@ -621,7 +621,7 @@ end
 local headers={buff=Header("buff"),cd=Header("cd"),remind=Header("remind")}
 
 local registered = EUI.RegisterPlugin(PLUGIN, {
-    label = "Cooldown Tracker (Ellesmere)",
+    label = "Cooldown Tracker",
     modules = { {
         key = "BuffBars", title = "Buff Bars",
         description = "Player buff timers. Settings are saved with EllesmereUICooldownTracker profiles.",
@@ -652,7 +652,7 @@ if EUI.RegisterUnlockElements and EUI.MakeUnlockElement then
         {"remind","EUICT_Remind","Ellesmere Reminders",-120}}) do
         local tracker,key,label,defaultY=unpack(info)
         elements[i]=EUI.MakeUnlockElement({
-            key=key,label=label,group="Cooldown Tracker (Ellesmere)",order=i,
+            key=key,label=label,group="Cooldown Tracker",order=i,
             getFrame=function() return ns.TrackerRoot(tracker) end,
             getSize=function()
                 local root,c=ns.TrackerRoot(tracker),ns.TrackerConfig(tracker)

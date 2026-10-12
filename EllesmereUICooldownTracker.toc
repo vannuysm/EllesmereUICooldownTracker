@@ -1,0 +1,17 @@
+## Interface: 120100, 120105, 16001
+## Title: Forever Cooldown Tracker (Ellesmere UI)
+## Notes: Cooldowns, buff timers and buff reminders for every class, healthstones and potions, and old spell ranks on your bars. EllesmereUI fork of Forever Cooldown Tracker. /euict for options.
+## Author: Ugge Zen (original), Matt VanNuys (fork)
+## IconTexture: Interface/Icons/Spell_Nature_TimeStop
+## X-License: MIT
+## Version: 1.0.0
+## OptionalDeps: !ForeverData, !ForeverDataProtect, EllesmereUI, EllesmereUIActionBars
+## SavedVariables: EUICT_DB
+## SavedVariablesPerCharacter: EUICT_DBC
+## AddonCompartmentFunc: EllesmereUICooldownTracker_OpenSettings
+
+Kit.lua
+KitUI.lua
+Ranks.lua
+EllesmereUICooldownTracker.lua
+EllesmereIntegration.lua

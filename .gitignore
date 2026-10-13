@@ -2,6 +2,14 @@
 debug.log
 local/
 
+# Python test tooling and generated reports
+.venv/
+.uv-cache/
+.pytest_cache/
+__pycache__/
+*.py[cod]
+test-results/
+
 # Visual Studio Code workspace settings
 .vscode/
 

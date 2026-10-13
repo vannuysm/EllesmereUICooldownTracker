@@ -87,6 +87,13 @@ The EllesmereUI sidebar label is **Cooldown Tracker**.
 
 The underlying addon also provides its standalone settings through `/euict` or `/ellesmerecooldowns` when EllesmereUI is unavailable.
 
+## Development tests
+
+Use `uv run --locked pytest` to run the Python-managed Lua unit, regression, and
+performance suite. Tests are organized under `tests/unit` and `tests/performance`
+and run on Lua 5.1 and LuaJIT. The [test guide](tests/README.md) documents focused
+runs, portable fixtures, performance reports, PR CI, and remaining in-game checks.
+
 ## License
 
 This project is licensed under the [MIT License](LICENSE).

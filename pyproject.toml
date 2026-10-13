@@ -1,0 +1,25 @@
+[project]
+name = "ellesmere-ui-cooldown-tracker-tests"
+version = "0.0.0"
+description = "Python test tooling for the Lua cooldown tracker addon"
+requires-python = ">=3.14,<3.15"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "lupa==2.6",
+    "pytest>=8.4,<10",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests/unit", "tests/performance"]
+addopts = "--strict-config --strict-markers --import-mode=importlib -ra"
+pythonpath = ["."]
+markers = [
+    "unit: deterministic unit and behavioral tests",
+    "regression: coverage for previously fixed behavior",
+    "performance: collection budgets and observational timing/allocation measurements",
+]

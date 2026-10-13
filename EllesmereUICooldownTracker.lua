@@ -365,16 +365,17 @@ local function CdButton(i, root)
     return b
 end
 
-function UpdateCd()
+local cdShown = {}
+function UpdateCd(renderOnly)
     local c = DB.cd
-    cdWaiting = false
+    if not renderOnly then cdWaiting = false end
     if not cdRoot then return end
     cdRoot:SetShown(CdVisible())
     if not c.enabled then return end
     -- Each entry is a learned spell, or an item in your bags ("Healthstone" matches any healthstone). Unlearned spells
     -- and items you don't carry get no icon; the game doesn't find unlearned spells by name at all.
-    local shown = {}
-    for _, name in ipairs(c.spells) do
+    local shown = renderOnly and cdShown or {}
+    for _, name in ipairs(renderOnly and {} or c.spells) do
         local info = C_Spell.GetSpellInfo(name)
         if info and KnownSpell(info.spellID) then shown[#shown + 1] = { spell = info }
         else
@@ -383,6 +384,7 @@ function UpdateCd()
         end
     end
     if #shown == 0 and ns.euiUnlockMode and not InCombatLockdown() then shown[1] = { sample = true } end
+    cdShown = shown
     local n = #shown
     SizeCdRoot(cdRoot, c, n)
     for i, e in ipairs(shown) do
@@ -393,8 +395,10 @@ function UpdateCd()
         b:Show()
         local info = e.spell
         b.spellID = info and info.spellID or nil
-        b.ready = false
-        if info then
+        if not renderOnly then b.ready = false end
+        if renderOnly then
+            if ns.ApplyCooldownAppearance then ns.ApplyCooldownAppearance(b) end
+        elseif info then
             b.icon:SetTexture(info.iconID)
             -- times may be secret values: never compare them, just pass them to the widget
             local cd = C_Spell.GetSpellCooldown(info.spellID)
@@ -587,7 +591,7 @@ local function ApplyAura(b, a)
     b.cd:Clear()
 end
 
-local function UpdateBuffs(updateInfo)
+local function UpdateBuffs(updateInfo, renderOnly)
     local c = DB.buff
     if not buffRoot then return end
     buffRoot:SetShown(BuffVisible(c))   -- hidden also stops the countdown OnUpdate
@@ -622,7 +626,7 @@ local function UpdateBuffs(updateInfo)
                 end
             end
         end)
-        if not handled then
+        if not renderOnly and not handled then
             local a = FindBuff(name)
             local keep = false
             if not a and (b.auraID or b.synthetic) then
@@ -838,11 +842,12 @@ local function RemindLine(i)
     return l
 end
 
-local function UpdateRemind()
+local reminderLines = {}
+local function UpdateRemind(renderOnly)
     local c = DB.remind
     if not remindRoot then return end
-    local lines = {}
-    if c.enabled and not InCombatLockdown() and not UnitIsDeadOrGhost("player") and not UnitOnTaxi("player") then
+    local lines = renderOnly and reminderLines or {}
+    if not renderOnly and c.enabled and not InCombatLockdown() and not UnitIsDeadOrGhost("player") and not UnitOnTaxi("player") then
         for _, entry in ipairs(c.self) do
             local learned = Learned(entry)
             if #learned > 0 and HasBuff("player", learned, false) == false then
@@ -882,6 +887,7 @@ local function UpdateRemind()
     if #lines == 0 and c.enabled and (not c.locked or ns.Kit.editMode or (ns.euiUnlockMode and not InCombatLockdown())) then
         lines[1] = { "Interface/Icons/Spell_Holy_FistOfJustice", "Buff reminder" }
     end
+    reminderLines = lines
     local width = 1
     for i, line in ipairs(lines) do
         local l = RemindLine(i)
@@ -923,11 +929,10 @@ local function Init()
             get = function() return DB[key].x, DB[key].y end,
             set = function(x, y)
                 ns.SaveTrackerPosition(key, x, y)
-                root:ClearAllPoints()
-                root:SetPoint("CENTER", UIParent, "CENTER", x, y)
+
             end,
             enabled = function() return DB[key].enabled end,
-            onToggle = function() UpdateAll() end,
+            onToggle = function() ns.ConfigChanged(key, "editing") end,
         })
     end
     ns.Ranks.Init(function() return DB.ranks or {} end)
@@ -953,13 +958,7 @@ ev:SetScript("OnEvent", function(_, event, arg, info, ...)
     elseif event == "PLAYER_LOGIN" then
         do
             InitDB()
-            if cdRoot then
-                for root, cfg in pairs({ [cdRoot] = DB.cd, [buffRoot] = DB.buff, [remindRoot] = DB.remind }) do
-                    root:ClearAllPoints(); root:SetPoint("CENTER", UIParent, "CENTER", cfg.x, cfg.y)
-                    root:EnableMouse(not cfg.locked); root.bg:SetShown(not cfg.locked)
-                end
-            end
-            UpdateAll()
+            ns.Configuration.Apply({ cd = { all = true }, buff = { all = true }, remind = { all = true }, ranks = { all = true } })
         end
     elseif event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" then UpdateCd(); UpdateBuffs()
     elseif event == "UNIT_AURA" then UpdateBuffs(type(info) == "table" and info or nil)
@@ -981,18 +980,9 @@ end)
 local Kit = ns.Kit
 local QUESTION = 134400
 
-local function SetLocked(cfg, root, v)
-    cfg.locked = v
-    if root then
-        root:EnableMouse(not v)
-        root.bg:SetShown(not v)
-    end
-    UpdateAll()
-end
-
--- Accessors read DB.cd / DB.buff on every call: the tables are replaced when saved variables arrive late.
+local function SetLocked(key, value) ns.SetConfig(key, "locked", value) end
 local function Opt(tracker, key) return function() return DB[tracker] and DB[tracker][key] end end
-local function SetOpt(tracker, key) return function(v) DB[tracker][key] = v; UpdateAll() end end
+local function SetOpt(tracker, key) return function(value) ns.SetConfig(tracker, key, value) end end
 local function List(tracker, key) return function() return DB[tracker] and DB[tracker][key] end end
 
 -- How a cooldown entry looks in the settings: learned spell, item in your bags, or greyed until then.
@@ -1076,9 +1066,7 @@ for _, o in ipairs(OVERVIEW) do
         open:SetScript("OnClick", function() if subs[key].category then Settings.OpenToCategory(subs[key].category:GetID()) end end)
         if key ~= "profiles" then
             local c = page:CheckAt(card, 0, 0, "Show", function() return DB[key] and DB[key].enabled end, function(v)
-                DB[key].enabled = v
-                if key == "ranks" then ns.Ranks.ResetTold(); ns.Ranks.Check() end
-                UpdateAll()
+                ns.SetConfig(key, "enabled", v)
             end)
             c:ClearAllPoints()
             c:SetPoint("RIGHT", open, "LEFT", -70, 0)
@@ -1239,7 +1227,7 @@ end)
 cdPage:Card("Look", 98, function(card, p)
     p:CheckAt(card, 8, -28, "Show", Opt("cd", "enabled"), SetOpt("cd", "enabled"), "Turn the cooldown icons on or off.")
     p:CheckAt(card, 120, -28, "Countdown numbers", Opt("cd", "numbers"), SetOpt("cd", "numbers"), "Draw the remaining time on each icon.")
-    p:CheckAt(card, 320, -28, "Locked", Opt("cd", "locked"), function(v) SetLocked(DB.cd, cdRoot, v) end, "Unlock to drag the cooldown tracker. A green box shows its area.")
+    p:CheckAt(card, 320, -28, "Locked", Opt("cd", "locked"), function(v) SetLocked("cd", v) end, "Unlock to drag the cooldown tracker. A green box shows its area.")
     p:SliderAt(card, 14, -64, "Size", 16, 80, 1, Opt("cd", "size"), SetOpt("cd", "size"), 140)
     p:SliderAt(card, 320, -64, "Spacing", 0, 20, 1, Opt("cd", "gap"), SetOpt("cd", "gap"), 120)
 end)
@@ -1248,20 +1236,15 @@ cdPage:Dropdown("Show bars", { { "always", "Always" }, { "combat", "In combat" }
     "Choose when the cooldown icons are visible. Unlocking the tracker keeps it visible for positioning.")
 cdPage:Section("Layout")
 cdPage:Dropdown("Orientation", { { "horizontal", "Horizontal" }, { "vertical", "Vertical" } }, Opt("cd", "orientation"), function(v)
-    DB.cd.orientation = v
-    DB.cd.growth = CdGrowth(DB.cd)
-    UpdateAll()
-    cdPage:Refresh()
+    ns.SetConfig("cd", "orientation", v)
 end, "Arrange cooldown icons in a horizontal row or a vertical column.")
 cdPage:Dropdown("Grow direction", function()
     if DB.cd and DB.cd.orientation == "vertical" then return { { "up", "Up" }, { "down", "Down" } } end
     return { { "right", "Right" }, { "left", "Left" } }
 end, function() return CdGrowth(DB.cd or {}) end, function(v)
-    DB.cd.growth = v
-    UpdateAll()
-    cdPage:Refresh()
+    ns.SetConfig("cd", "growth", v)
 end, "Right starts at the left edge; Left starts at the right edge. Up starts at the bottom; Down starts at the top.")
-cdPage:Icons(List("cd", "spells"), { title = "Tracked", sources = { "spells", "items" }, resolve = ResolveCd, onChange = UpdateAll,
+cdPage:Icons(List("cd", "spells"), { title = "Tracked", sources = { "spells", "items" }, resolve = ResolveCd, onChange = function() ns.ConfigChanged("cd", "spells") end,
     later = "Not learned yet, or not in your bags",
     laterHint = "These join the row by themselves once you learn them or carry one. Part of an item name is enough: \"Healthstone\" covers every healthstone." })
 
@@ -1269,12 +1252,12 @@ cdPage:Icons(List("cd", "spells"), { title = "Tracked", sources = { "spells", "i
 buffPage:Preview(40 + 3 * 30, PreviewBuff, { modes = true })
 buffPage:Card("Look", 128, function(card, p)
     p:CheckAt(card, 8, -28, "Show", Opt("buff", "enabled"), SetOpt("buff", "enabled"), "Turn the buff bars on or off.")
-    p:CheckAt(card, 120, -28, "Locked", Opt("buff", "locked"), function(v) SetLocked(DB.buff, buffRoot, v) end, "Unlock to drag the bars. Inactive bars show dimmed while unlocked.")
+    p:CheckAt(card, 120, -28, "Locked", Opt("buff", "locked"), function(v) SetLocked("buff", v) end, "Unlock to drag the bars. Inactive bars show dimmed while unlocked.")
     p:SliderAt(card, 14, -64, "Width", 80, 400, 5, Opt("buff", "width"), SetOpt("buff", "width"), 140)
     p:SliderAt(card, 320, -64, "Height", 12, 48, 1, Opt("buff", "height"), SetOpt("buff", "height"), 120)
     p:SliderAt(card, 14, -96, "Spacing", 0, 20, 1, Opt("buff", "gap"), SetOpt("buff", "gap"), 140)
 end)
-buffPage:Icons(List("buff", "spells"), { title = "Tracked buffs", sources = { "spells" }, resolve = ResolveBuff, onChange = UpdateAll,
+buffPage:Icons(List("buff", "spells"), { title = "Tracked buffs", sources = { "spells" }, resolve = ResolveBuff, onChange = function() ns.ConfigChanged("buff", "spells") end,
     later = "Not learned yet", laterHint = "These get a bar once you learn them.",
     subtitle = "A name matches any buff starting with it: \"Seal of\" covers every seal" })
 
@@ -1285,17 +1268,17 @@ remindPage:Card("When", 98, function(card, p)
     p:CheckAt(card, 8, -28, "Show reminders", Opt("remind", "enabled"), SetOpt("remind", "enabled"), "Out of combat, show a reminder when a buff is missing.")
     p:CheckAt(card, 180, -28, "Party members", Opt("remind", "party"), SetOpt("remind", "party"), "Name who in your party is missing your buff, when they're in range.")
     p:CheckAt(card, 350, -28, "Friendly target", Opt("remind", "target"), SetOpt("remind", "target"), "Name the friendly player you target when they're missing your buff.")
-    p:CheckAt(card, 8, -60, "Locked", Opt("remind", "locked"), function(v) SetLocked(DB.remind, remindRoot, v) end, "Unlock to drag the reminders. A sample line shows while unlocked.")
+    p:CheckAt(card, 8, -60, "Locked", Opt("remind", "locked"), function(v) SetLocked("remind", v) end, "Unlock to drag the reminders. A sample line shows while unlocked.")
     p:SliderAt(card, 186, -64, "Icon size", 12, 48, 1, Opt("remind", "size"), SetOpt("remind", "size"), 120)
 end)
 remindPage:IconGroups(List("remind", "self"), { title = "Buffs you should have", label = function(names)
     local learned = {}
     for _, n in ipairs(names) do learned[#learned + 1] = { name = n } end
     return #names > 1 and ("Any: " .. Label(learned)) or names[1]
-end, onChange = UpdateAll })
+end, onChange = function() ns.ConfigChanged("remind", "self") end })
 remindPage:IconGroups(List("remind", "ally"), { title = "Buffs you give others", subtitle = "Only ones you cast count",
     label = function(names) local l = {}; for _, n in ipairs(names) do l[#l + 1] = { name = n } end; return #names > 1 and ("Any: " .. Label(l)) or names[1] end,
-    onChange = UpdateAll })
+    onChange = function() ns.ConfigChanged("remind", "ally") end })
 
 -- The blessing each class gets from you: a card per class, the blessing as a button that opens a menu with icons.
 do
@@ -1337,8 +1320,7 @@ do
                     local text = (info and ("|T" .. info.iconID .. ":16|t ") or "") .. o[2]
                     root:CreateRadio(text, function() return DB.remind.byClass[class] == o[1] end, function()
                         DB.remind.byClass[class] = o[1]
-                        UpdateAll()
-                        remindPage:Refresh()
+                        ns.ConfigChanged("remind", "byClass")
                     end)
                 end
             end)
@@ -1397,14 +1379,14 @@ rankPage:Preview(84, function(stage)
     f:SetAlpha(DB.ranks.enabled and 1 or 0.35)
 end)
 rankPage:Card(nil, 70, function(card, p)
-    p:CheckAt(card, 8, -6, "Mark old ranks", Opt("ranks", "enabled"), function(v) DB.ranks.enabled = v; ns.Ranks.ResetTold(); ns.Ranks.Check() end,
+    p:CheckAt(card, 8, -6, "Mark old ranks", Opt("ranks", "enabled"), SetOpt("ranks", "enabled"),
         "A green arrow on action buttons holding a lower rank than one you know, and a line in chat.")
-    p:CheckAt(card, 8, -36, "Update to the newest rank by itself", Opt("ranks", "auto"), function(v) DB.ranks.auto = v; ns.Ranks.Check() end,
+    p:CheckAt(card, 8, -36, "Update to the newest rank by itself", Opt("ranks", "auto"), SetOpt("ranks", "auto"),
         "Swap old ranks on your action bars for the newest one you know, as soon as you're out of combat.")
 end)
 rankPage:Icons(List("ranks", "keep"), { title = "Keep on their rank", sources = { "spells" }, resolve = ResolveSpell,
     later = "Not learned yet",
-    onChange = function() ns.Ranks.ResetTold(); ns.Ranks.Check() end,
+    onChange = function() ns.ConfigChanged("ranks", "keep") end,
     subtitle = "Spells you keep low on purpose, e.g. a low rank for less mana" })
 
 -- Profiles contain only validated configurable fields; positions and storage stay with this character.
@@ -1415,10 +1397,7 @@ function ns.ApplyProfile(data)
     local candidate, err = ns.ProfileValidation.Validate(data)
     if not candidate then return nil, err end
     ns.ProfileValidation.Commit(DB, candidate)
-    ns.RefreshTrackers()
-    ns.Ranks.ResetTold()
-    ns.Ranks.Check()
-    if ns.RefreshTrackerSettings then ns.RefreshTrackerSettings() end
+    ns.Configuration.Apply({ cd = { all = true }, buff = { all = true }, remind = { all = true }, ranks = { all = true } }, { profile = true })
     return true
 end
 -- Keep the original profile format for explicit imports; saved variables remain separate.
@@ -1445,41 +1424,60 @@ function ns.SaveTrackerPosition(key, x, y)
     local cfg = DB[key]
     if not cfg or type(x) ~= "number" or type(y) ~= "number" then return end
     cfg.x, cfg.y = x, y
+    ns.Configuration.Apply({ [key] = { x = true, y = true } })
     ns.Kit.SaveEditModePosition(key)
 end
 function ns.TrackerConfig(key) return DB[key] end
 function ns.TrackerRoot(key)
     if key == "cd" then return cdRoot elseif key == "buff" then return buffRoot elseif key == "remind" then return remindRoot end
 end
-function ns.RefreshTrackers()
-    for _, key in ipairs({ "cd", "buff", "remind" }) do
-        local root, cfg = ns.TrackerRoot(key), DB[key]
-        if root and cfg then root:EnableMouse(not cfg.locked); root.bg:SetShown(not cfg.locked) end
+function ns.ApplyTrackerConfiguration(key, effects)
+    local root, cfg = ns.TrackerRoot(key), DB[key]
+    if not root or not cfg then return end
+    if effects.position then
+        root:ClearAllPoints(); root:SetPoint("CENTER", UIParent, "CENTER", cfg.x, cfg.y)
     end
-    if cdRoot then UpdateAll(); RefreshPages() end
+    if effects.visibility then
+        root:EnableMouse(not cfg.locked); root.bg:SetShown(not cfg.locked)
+    end
+    if effects.position and not (effects.data or effects.layout or effects.appearance or effects.visibility) then return end
+    local renderOnly = not (effects.data or effects.visibility)
+    if key == "cd" then UpdateCd(renderOnly)
+    elseif key == "buff" then UpdateBuffs(nil, renderOnly)
+    elseif key == "remind" then UpdateRemind(renderOnly) end
+end
+function ns.RefreshConfigurationPages(changes, options)
+    for key, p in pairs(ns.settingsPages) do
+        if (changes[key] or key == "main" or options.profile) and p.frame:IsShown() then p:Refresh() end
+    end
+    if ns.RefreshTrackerSettings then ns.RefreshTrackerSettings(changes) end
+end
+function ns.RefreshTrackers()
+    ns.Configuration.Apply({ cd = { editing = true }, buff = { editing = true }, remind = { editing = true } })
 end
 function ns.BuffConfig() return DB.buff end
 function ns.BuffRoot() return buffRoot end
-function ns.RefreshBuffs()
-    if not buffRoot then return end
-    buffRoot:EnableMouse(not DB.buff.locked)
-    buffRoot.bg:SetShown(not DB.buff.locked)
-    UpdateBuffs()
-    RefreshPages()
-end
+function ns.RefreshBuffs() ns.ConfigChanged("buff", "editing") end
 ns.PreviewBuff = PreviewBuff
 ns.PreviewCd = PreviewCd
 ns.PreviewRemind = PreviewRemind
 
+local function SlashSetting(section, field, text)
+    local data = ns.SnapshotProfile()
+    data[section][field] = tonumber(text)
+    local candidate, err = ns.ProfileValidation.Validate(data)
+    if candidate then ns.SetConfig(section, field, candidate[section][field])
+    else print("EllesmereUICooldownTracker: " .. err) end
+end
 SLASH_EUICT1 = "/euict"
 SLASH_EUICT2 = "/ellesmerecooldowns"
 SlashCmdList.EUICT = function(msg)
     local cmd, arg = msg:match("^(%S+)%s*(.-)$")
     if cmd == "reset" then wipe(DB); ReloadUI()
     elseif cmd == "ranks" then ns.Ranks.Report()
-    elseif cmd == "cdsize" and tonumber(arg) then DB.cd.size = tonumber(arg); UpdateAll()
-    elseif cmd == "barwidth" and tonumber(arg) then DB.buff.width = tonumber(arg); UpdateAll()
-    elseif cmd == "barheight" and tonumber(arg) then DB.buff.height = tonumber(arg); UpdateAll()
+    elseif cmd == "cdsize" and tonumber(arg) then SlashSetting("cd", "size", arg)
+    elseif cmd == "barwidth" and tonumber(arg) then SlashSetting("buff", "width", arg)
+    elseif cmd == "barheight" and tonumber(arg) then SlashSetting("buff", "height", arg)
     elseif cmd == "buff" and ns.OpenBuffSettings then ns.OpenBuffSettings()
     elseif (cmd == "cd" or cmd == "remind" or cmd == "reminders") and ns.OpenTrackerSettings then
         ns.OpenTrackerSettings(cmd == "cd" and "cd" or "remind")

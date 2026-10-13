@@ -15,5 +15,6 @@ ProfileValidation.lua
 ProfileCodec.lua
 KitUI.lua
 Ranks.lua
+Configuration.lua
 EllesmereUICooldownTracker.lua
 EllesmereIntegration.lua

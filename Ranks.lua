@@ -110,9 +110,10 @@ end
 
 function Ranks.Check()
     local s = settings()
-    pcall(Ranks.Mark)
+    local outdated = s.enabled and Ranks.Outdated() or {}
+    pcall(Ranks.Mark, outdated)
     if not s.enabled then return end
-    for _, o in ipairs(Ranks.Outdated()) do
+    for _, o in ipairs(outdated) do
         local key = o.slot .. ":" .. o.id
         if s.auto then
             if InCombatLockdown() then pending = true

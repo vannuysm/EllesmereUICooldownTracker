@@ -21,6 +21,28 @@ function C.Effects(fields)
     return effects
 end
 
+local function Equal(a, b)
+    if type(a) ~= type(b) then return false end
+    if type(a) ~= "table" then return a == b end
+    for key, value in pairs(a) do if not Equal(value, b[key]) then return false end end
+    for key in pairs(b) do if a[key] == nil then return false end end
+    return true
+end
+function C.Changes(db, candidate)
+    local changes = {}
+    for section, fields in pairs(candidate) do
+        if type(fields) == "table" then
+            for field, value in pairs(fields) do
+                if not Equal(db[section] and db[section][field], value) then
+                    changes[section] = changes[section] or {}
+                    changes[section][field] = true
+                end
+            end
+        end
+    end
+    return changes
+end
+
 -- Call after a validated profile commit or an editor's valid, in-place list mutation.
 function C.Apply(changes, options)
     options = options or {}
@@ -35,7 +57,7 @@ function C.Apply(changes, options)
     if ns.RefreshConfigurationPages then ns.RefreshConfigurationPages(changes, options) end
 end
 
-function ns.SetConfig(section, field, value)
+function ns.SetConfig(section, field, value, options)
     local cfg = ns.TrackerConfig(section)
     cfg[field] = value
     local fields = { [field] = true }
@@ -44,9 +66,9 @@ function ns.SetConfig(section, field, value)
             or (cfg.growth == "left" and "left" or "right")
         fields.growth = true
     end
-    C.Apply({ [section] = fields })
+    C.Apply({ [section] = fields }, options)
 end
 
-function ns.ConfigChanged(section, field)
-    C.Apply({ [section] = { [field] = true } })
+function ns.ConfigChanged(section, field, options)
+    C.Apply({ [section] = { [field] = true } }, options)
 end

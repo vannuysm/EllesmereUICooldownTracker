@@ -2,6 +2,7 @@
 -- Saved variables load after this file runs: everything that touches DB is set up in Init() on ADDON_LOADED.
 local ADDON_NAME, ns = ...
 local DB = {}
+local State = ns.Collection
 ns.CLASS_BLESSING = { MAGE = "Blessing of Wisdom", WARLOCK = "Blessing of Wisdom", PRIEST = "Blessing of Wisdom",
     WARRIOR = "Blessing of Might", ROGUE = "Blessing of Might", PALADIN = "", DRUID = "", SHAMAN = "", HUNTER = "" }
 ns.BLESSINGS = "Blessing of Might / Blessing of Wisdom / Blessing of Kings / Blessing of Salvation / Blessing of Light / Blessing of Sanctuary"
@@ -159,8 +160,6 @@ local function MakeRoot(name, key)
         local s = self:GetEffectiveScale() / UIParent:GetEffectiveScale()
         x, y = math.floor(x * s - ux + 0.5), math.floor(y * s - uy + 0.5)
         ns.SaveTrackerPosition(key, x, y)
-        self:ClearAllPoints()
-        self:SetPoint("CENTER", UIParent, "CENTER", x, y)
     end)
     f.bg = f:CreateTexture(nil, "BACKGROUND")
     f.bg:SetAllPoints()
@@ -188,10 +187,9 @@ end
 -- Sets a cooldown sweep without erroring on secret values. Returns true if a sweep was set.
 -- The duration object comes first: it is not secret in combat, so the widget gets its sweep and countdown numbers there
 -- too; GetSpellCooldown's start and duration are secret in combat and the widget refuses them from addon code.
-local function SafeCooldown(cdFrame, start, duration, modRate, spellID)
-    if spellID and C_Spell.GetSpellCooldownDuration and cdFrame.SetCooldownFromDurationObject then
-        local ok, dur = pcall(C_Spell.GetSpellCooldownDuration, spellID, true)
-        if ok and dur and pcall(cdFrame.SetCooldownFromDurationObject, cdFrame, dur) then return true end
+local function SafeCooldown(cdFrame, start, duration, modRate, spellID, durationObject)
+    if durationObject and cdFrame.SetCooldownFromDurationObject then
+        if pcall(cdFrame.SetCooldownFromDurationObject, cdFrame, durationObject) then return true end
     end
     if spellID and cdFrame.SetCooldownFromSpellID and pcall(cdFrame.SetCooldownFromSpellID, cdFrame, spellID) then return true end
     if pcall(cdFrame.SetCooldown, cdFrame, start, duration, modRate) then return true end
@@ -201,9 +199,11 @@ end
 -- Cooldown row --------------------------------------------------------------
 -- The game sends SPELL_UPDATE_COOLDOWN when a cooldown starts, not when it ends: an icon re-checks when its sweep
 -- runs out, and while any icon is grey a ticker re-checks too (in combat the timings are secret and there is no sweep).
-local UpdateCd
+local UpdateCd, QueueCd
+local cdLayoutDirty, cdStateDirty = true, true
+local cdAppearanceDirty = true
 local cdWaiting = false
-local function Readable(v, kind) return type(v) == kind and not (issecretvalue and issecretvalue(v)) end
+local Readable = State.Readable
 local function CdVisible()
     local c = DB.cd
     if not c.enabled then return false end
@@ -281,7 +281,10 @@ local function SetCdGlow(b, shown)
 end
 local function UpdateCdRange()
     if not cdRoot or not DB.cd.enabled then return end
-    cdRoot:SetShown(CdVisible())
+    local visible = CdVisible()
+    if visible and not cdRoot:IsShown() then UpdateCd(); return end
+    cdRoot:SetShown(visible)
+    if not visible then cdStateDirty = true; return end
     for _, b in ipairs(cdRoot.items) do
         if b:IsShown() then
             local brightness = DB.cd.rangeDim ~= false and b.spellID and OutOfRange(b.spellID, "target") and 0.35 or 1
@@ -291,20 +294,9 @@ local function UpdateCdRange()
     end
 end
 -- The first item in your bags whose name contains this text: { id, icon }
-local function BagItem(text)
-    if not (C_Container and C_Container.GetContainerNumSlots) then return nil end
-    local want = text:lower()
-    for bag = 0, 4 do
-        local ok, slots = pcall(C_Container.GetContainerNumSlots, bag)
-        for slot = 1, ok and Readable(slots, "number") and slots or 0 do
-            local ok2, it = pcall(C_Container.GetContainerItemInfo, bag, slot)
-            if ok2 and type(it) == "table" and Readable(it.itemName, "string") and it.itemName:lower():find(want, 1, true) then
-                return { id = it.itemID, icon = it.iconFileID }
-            end
-        end
-    end
-end
-local function KnownSpell(spellID)
+local BagItem = State.Item
+local knownSpells, knownRevision = {}, -1
+local function QueryKnownSpell(spellID)
     if C_SpellBook and C_SpellBook.IsSpellKnown then
         local ok, known = pcall(C_SpellBook.IsSpellKnown, spellID)
         if ok and type(known) == "boolean" and not (issecretvalue and issecretvalue(known)) then
@@ -312,11 +304,19 @@ local function KnownSpell(spellID)
             -- your pet's abilities are in the pet spellbook
             local pet = Enum and Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Pet
             local okP, petKnown = pcall(C_SpellBook.IsSpellKnown, spellID, pet)
-            return pet ~= nil and okP and petKnown == true
+            return pet ~= nil and okP and Readable(petKnown, "boolean") and petKnown
         end
     end
-    if IsPlayerSpell then return IsPlayerSpell(spellID) end
+    if IsPlayerSpell then
+        local ok, known = pcall(IsPlayerSpell, spellID)
+        return ok and Readable(known, "boolean") and known
+    end
     return true
+end
+local function KnownSpell(spellID)
+    if knownRevision ~= State.spellRevision then wipe(knownSpells); knownRevision = State.spellRevision end
+    if knownSpells[spellID] == nil then knownSpells[spellID] = QueryKnownSpell(spellID) == true end
+    return knownSpells[spellID]
 end
 -- root: the tracker or a settings preview; only the real tracker takes the mouse and re-checks when a sweep ends
 local CD_ANCHORS = {
@@ -352,7 +352,7 @@ local function CdButton(i, root)
     b.glow:Hide()
     b:SetScript("OnHide", function(self) SetCdGlow(self, false) end)
     if root == cdRoot then
-        b.cd:SetScript("OnCooldownDone", function() UpdateCd() end)
+        b.cd:SetScript("OnCooldownDone", function() QueueCd(b.spellID and "spell" or "item", b.spellID) end)
         AttachMouse(b, cdRoot, "cd")
     else
         b.cd:SetScript("OnCooldownDone", function()
@@ -365,74 +365,97 @@ local function CdButton(i, root)
     return b
 end
 
-local cdShown = {}
-function UpdateCd(renderOnly)
+local cdShown, cdSpellRevision, cdBagRevision = {}, -1, -1
+local cdResolutionDirty = true
+local function ResolveCooldowns()
+    if not cdResolutionDirty and cdSpellRevision == State.spellRevision and cdBagRevision == State.bagRevision then return cdShown end
+    wipe(cdShown)
+    for _, name in ipairs(DB.cd.spells) do
+        local info = State.Spell(name)
+        if info and KnownSpell(info.spellID) then cdShown[#cdShown + 1] = { spell = info }
+        else
+            local item = BagItem(name)
+            if item then cdShown[#cdShown + 1] = { item = item } end
+        end
+    end
+    cdResolutionDirty, cdLayoutDirty, cdStateDirty = false, true, true
+    cdSpellRevision, cdBagRevision = State.spellRevision, State.bagRevision
+    return cdShown
+end
+local function ReleaseCd(b)
+    b:Hide(); SetCdGlow(b, false); b.cd:Clear()
+    b.icon:SetTexture(nil)
+    b.spellID, b.ready = nil, false
+    b.waiting = false
+end
+local function RenderCooldownLayout(entries)
     local c = DB.cd
-    if not renderOnly then cdWaiting = false end
-    if not cdRoot then return end
-    cdRoot:SetShown(CdVisible())
-    if not c.enabled then return end
-    -- Each entry is a learned spell, or an item in your bags ("Healthstone" matches any healthstone). Unlearned spells
-    -- and items you don't carry get no icon; the game doesn't find unlearned spells by name at all.
-    local shown = renderOnly and cdShown or {}
-    for _, name in ipairs(renderOnly and {} or c.spells) do
-        local info = C_Spell.GetSpellInfo(name)
-        if info and KnownSpell(info.spellID) then shown[#shown + 1] = { spell = info }
-        else
-            local it = BagItem(name)
-            if it then shown[#shown + 1] = { item = it } end
-        end
-    end
-    if #shown == 0 and ns.euiUnlockMode and not InCombatLockdown() then shown[1] = { sample = true } end
-    cdShown = shown
-    local n = #shown
+    local sample = #entries == 0 and ns.euiUnlockMode and not InCombatLockdown()
+    local n = sample and 1 or #entries
     SizeCdRoot(cdRoot, c, n)
-    for i, e in ipairs(shown) do
-        local b = CdButton(i)
-        -- the widget draws the remaining time itself, so this works even when the timings are secret
-        b.cd:SetHideCountdownNumbers(not c.numbers)
+    for i = 1, n do
+        local entry, b = entries[i], CdButton(i)
         PositionCdButton(b, cdRoot, c, i)
+        b.spellID = entry and entry.spell and entry.spell.spellID or nil
+        b.icon:SetTexture(entry and (entry.spell and entry.spell.iconID or entry.item.icon) or "Interface/Icons/INV_Misc_QuestionMark")
+        b.cd:SetHideCountdownNumbers(not c.numbers)
+        if ns.ApplyCooldownAppearance then ns.ApplyCooldownAppearance(b) end
+        if not entry then b.cd:Clear(); b.ready = false; b.icon:SetDesaturated(false) end
         b:Show()
-        local info = e.spell
-        b.spellID = info and info.spellID or nil
-        if not renderOnly then b.ready = false end
-        if renderOnly then
+    end
+    for i = n + 1, #cdRoot.items do ReleaseCd(cdRoot.items[i]) end
+    cdLayoutDirty, cdAppearanceDirty = false, false
+end
+local function RenderCooldownAppearance()
+    for _, b in ipairs(cdRoot.items) do
+        if b:IsShown() then
+            b.cd:SetHideCountdownNumbers(not DB.cd.numbers)
             if ns.ApplyCooldownAppearance then ns.ApplyCooldownAppearance(b) end
-        elseif info then
-            b.icon:SetTexture(info.iconID)
-            -- times may be secret values: never compare them, just pass them to the widget
-            local cd = C_Spell.GetSpellCooldown(info.spellID)
-            if cd and cd.isActive and not cd.isOnGCD then
-                -- secret values may be rejected even by the widget from addon code; degrade to a greyed icon
-                if not SafeCooldown(b.cd, cd.startTime, cd.duration, cd.modRate, info.spellID) then b.cd:Clear() end
-                b.icon:SetDesaturated(true)
-                cdWaiting = true
-            else
-                b.cd:Clear()
-                b.icon:SetDesaturated(false)
-                -- Missing or unreadable cooldown data cannot confirm that the spell is ready.
-                b.ready = cd ~= nil and Readable(cd.isActive, "boolean")
-                    and (not cd.isActive or (Readable(cd.isOnGCD, "boolean") and cd.isOnGCD))
-            end
-        elseif e.sample then
-            b.icon:SetTexture("Interface/Icons/INV_Misc_QuestionMark")
-            b.icon:SetDesaturated(false)
-            b.cd:Clear()
-        else
-            b.icon:SetTexture(e.item.icon)
-            local ok, start, duration = pcall(C_Item.GetItemCooldown, e.item.id)
-            -- readable times only: an item cooldown that is secret just shows the plain icon
-            local active = ok and Readable(start, "number") and Readable(duration, "number") and duration > 1.5
-            if active and pcall(b.cd.SetCooldown, b.cd, start, duration) then
-                b.icon:SetDesaturated(true)
-                cdWaiting = true
-            else
-                b.cd:Clear()
-                b.icon:SetDesaturated(false)
-            end
         end
     end
-    for i = n + 1, #cdRoot.items do cdRoot.items[i]:Hide() end
+    cdAppearanceDirty = false
+end
+local function RenderCooldownEntry(b, entry)
+    local info = entry.spell
+    b.ready, b.waiting = false, false
+    if info then
+        local cd = entry.cooldown
+        if entry.active then
+            if not SafeCooldown(b.cd, cd.startTime, cd.duration, cd.modRate, info.spellID, entry.durationObject) then b.cd:Clear() end
+            b.icon:SetDesaturated(true); b.waiting = true
+        else
+            b.cd:Clear(); b.icon:SetDesaturated(false)
+            b.ready = entry.ready
+        end
+        return
+    end
+    if entry.active and pcall(b.cd.SetCooldown, b.cd, entry.start, entry.duration) then
+        b.icon:SetDesaturated(true); b.waiting = true
+    else b.cd:Clear(); b.icon:SetDesaturated(false) end
+end
+local function RenderCooldownState(entries)
+    cdWaiting = false
+    for i, entry in ipairs(entries) do
+        local b = cdRoot.items[i]
+        if entry.updated then RenderCooldownEntry(b, entry) end
+        cdWaiting = cdWaiting or b.waiting
+    end
+end
+function UpdateCd(renderOnly, kind, ids)
+    if not cdRoot then return end
+    local wasVisible, visible = cdRoot:IsShown(), CdVisible()
+    cdRoot:SetShown(visible)
+    if not visible then cdStateDirty = true; return end
+    if not wasVisible then cdLayoutDirty, cdStateDirty = true, true end
+    local entries = renderOnly and not cdResolutionDirty and cdShown or ResolveCooldowns()
+    if cdStateDirty then kind, ids, renderOnly = nil, nil, false end
+    if cdLayoutDirty then RenderCooldownLayout(entries) end
+    if cdAppearanceDirty then RenderCooldownAppearance() end
+    if not renderOnly then
+        State.Cooldowns(entries, kind, ids)
+        RenderCooldownState(entries)
+        cdStateDirty = false
+    end
     UpdateCdRange()
 end
 
@@ -457,7 +480,10 @@ local function BuffVisible(c)
     if not c.enabled then return false end
     if BuffEditing() or not c.locked then return true end
     if c.visibility == "combat" then return InCombatLockdown() end
-    if c.visibility == "target" then return InCombatLockdown() or UnitCanAttack("player", "target") end
+    if c.visibility == "target" then
+        local ok, attackable = pcall(UnitCanAttack, "player", "target")
+        return InCombatLockdown() or (ok and Readable(attackable, "boolean") and attackable)
+    end
     return true
 end
 local function BuffBar(i, root)
@@ -490,21 +516,11 @@ end
 
 -- A value we can do arithmetic or string work on. In 12.x type() reports a secret as the type it hides, so a type
 -- check alone lets secrets through and the comparison after it errors.
-local function Readable(v, kind) return type(v) == kind and not (issecretvalue and issecretvalue(v)) end
 
 -- returns aura, hadError; secret auras throw in combat, so skip them and report it
 local function Matches(a, pattern)
     local ok, name = pcall(function() return a.name end)
     return ok and Readable(name, "string") and name:lower():find(pattern:lower(), 1, true) == 1
-end
-
--- Scan all buffs (works out of combat; in combat individual entries may be secret and are skipped).
-local function FindBuff(pattern)
-    for i = 1, 40 do
-        local ok, a = pcall(C_UnitAuras.GetBuffDataByIndex, "player", i)
-        if ok and not a then return end
-        if ok and a and Matches(a, pattern) then return a end
-    end
 end
 
 -- One look for every bar: textured blue for time remaining, dark for time gone.
@@ -527,14 +543,21 @@ end
 
 -- Frames are pooled by index, but remembered aura/timer state belongs to the configured entry.
 -- An unchanged entry keeps its last readable duration for combat fallback and synthetic recasts.
-local function ResetBuffBar(b, entry)
-    if b.entry == entry then return false end
-    b.entry = entry
-    b.aura, b.auraID, b.lastDuration, b.endsAt, b.synthetic, b.timerObject = nil, nil, nil, nil, nil, nil
-    -- SetTimerDuration requires an object, not nil. Replace the old timer with a stopped, zero-duration one.
+local function StopBuffTimer(b)
     if b.bar.SetTimerDuration and C_DurationUtil and C_DurationUtil.CreateDuration then
         pcall(b.bar.SetTimerDuration, b.bar, C_DurationUtil.CreateDuration())
     end
+end
+local function ResetBuffBar(b, entry)
+    if b.entry == entry then return false end
+    b.entry = entry
+    b.entryInfo, b.infoRevision = nil, nil
+    b.lastTimeText = nil
+    b.lastTimeMinutes, b.nextTimerCheck = nil, nil
+    b.readableDuration, b.readableExpiration = nil, nil
+    b.aura, b.auraID, b.lastDuration, b.endsAt, b.synthetic, b.timerObject = nil, nil, nil, nil, nil, nil
+    -- SetTimerDuration requires an object, not nil. Replace the old timer with a stopped, zero-duration one.
+    StopBuffTimer(b)
     b.bar:SetMinMaxValues(0, 1); b.bar:SetValue(0)
     b.cd:Clear()
     b.icon:SetTexture(nil); b.name:SetText(""); b.time:SetText("")
@@ -556,7 +579,7 @@ local function SetTimer(bar, dur)
 end
 
 -- Drive a bar from an aura instance. Uses the client's duration objects so secret timings still animate.
-local function ApplyAura(b, a)
+local function ApplyAura(b, a, durationObject)
     -- an aura the game still lists but whose time is up counts as gone
     if a then
         local ok, x, dur = pcall(function() return a.expirationTime, a.duration end)
@@ -564,15 +587,21 @@ local function ApplyAura(b, a)
     end
     b.aura = a
     b.synthetic = nil
+    b.nextTimerCheck = nil
+    if not a then b.lastTimeText = nil end
     b.auraID = a and a.auraInstanceID
     local okD, d = pcall(function() return a and a.duration end)
+    local okE, e = pcall(function() return a and a.expirationTime end)
+    b.readableDuration = okD and Readable(d, "number") and d or nil
+    b.readableExpiration = okE and Readable(e, "number") and e or nil
     if okD and Readable(d, "number") and d > 0 then b.lastDuration = d end
     -- when it runs out, if we can tell: in combat the game may not say when an aura ends, so the bar ends it itself
     -- (in combat the timings come back secret: then keep the end time we already know)
-    local okE, e = pcall(function() return a and a.expirationTime end)
     if not a then b.endsAt = nil
     elseif okD and okE and Readable(d, "number") and Readable(e, "number") then b.endsAt = d > 0 and e or nil end
     if not a then
+        b.timerObject = nil
+        StopBuffTimer(b)
         b.bar:SetMinMaxValues(0, 1); b.bar:SetValue(0); b.time:SetText(""); b.cd:Clear()
         return
     end
@@ -581,61 +610,27 @@ local function ApplyAura(b, a)
     local okName, name = pcall(function() return a.name end)
     b.name:SetText(okName and type(name) == "string" and name or "")
     local mode
-    if b.auraID and C_UnitAuras.GetAuraDuration and b.bar.SetTimerDuration then
-        local ok, dur = pcall(C_UnitAuras.GetAuraDuration, "player", b.auraID)
-        if ok and dur then mode = SetTimer(b.bar, dur) end
-    end
+    if durationObject and b.bar.SetTimerDuration then mode = SetTimer(b.bar, durationObject) end
     b.timerObject = mode ~= nil
-    StyleBar(b, mode == "elapsed")
+    if b.inverted ~= (mode == "elapsed") then StyleBar(b, mode == "elapsed") end
     if not mode then b.bar:SetMinMaxValues(0, 1); b.bar:SetValue(1) end
     b.cd:Clear()
 end
+local function AuraID(aura) return aura and aura.auraInstanceID end
+local function RefreshAura(b, aura, durations)
+    local ok, id = pcall(AuraID, aura)
+    local duration = ok and State.AuraDuration("player", id, durations)
+    ApplyAura(b, aura, duration)
+end
 
-local function UpdateBuffs(updateInfo, renderOnly)
-    local c = DB.buff
-    if not buffRoot then return end
-    buffRoot:SetShown(BuffVisible(c))   -- hidden also stops the countdown OnUpdate
-    local n = #c.spells
-    for i = n + 1, #buffRoot.items do
-        local b = buffRoot.items[i]
-        ResetBuffBar(b, nil)
-        b:Hide()
-    end
-    if not c.enabled then return end
-    SizeBuffRoot(buffRoot, c, n)
-    local shown = 0
+local buffLayoutDirty, buffDataDirty = true, true
+local buffAppearanceDirty = true
+local hiddenCasts, SyntheticAura = {}, nil
+local function RenderBuffs()
+    local c, shown = DB.buff, 0
+    SizeBuffRoot(buffRoot, c, #c.spells)
     for i, name in ipairs(c.spells) do
         local b = BuffBar(i)
-        local changed = ResetBuffBar(b, name)
-        -- The update payload and its fields can themselves be secret in combat; any error falls back to a full rescan.
-        local handled = not changed and updateInfo and pcall(function()
-            if updateInfo.isFullUpdate then error("full") end
-            if updateInfo.removedAuraInstanceIDs and b.auraID then
-                for _, id in ipairs(updateInfo.removedAuraInstanceIDs) do if id == b.auraID then ApplyAura(b, nil) end end
-            end
-            if updateInfo.addedAuras then
-                for _, a in ipairs(updateInfo.addedAuras) do if Matches(a, name) then ApplyAura(b, a) end end
-            end
-            if updateInfo.updatedAuraInstanceIDs and b.auraID then
-                for _, id in ipairs(updateInfo.updatedAuraInstanceIDs) do
-                    if id == b.auraID then
-                        local ok, a = pcall(C_UnitAuras.GetAuraDataByAuraInstanceID, "player", id)
-                        -- refreshed: the old end time no longer holds (ApplyAura sets the new one if it can read it)
-                        if ok and a then b.endsAt = nil; ApplyAura(b, a) end
-                    end
-                end
-            end
-        end)
-        if not renderOnly and not handled then
-            local a = FindBuff(name)
-            local keep = false
-            if not a and (b.auraID or b.synthetic) then
-                -- scan is blind in combat; ask about the instance we already track (nil = gone, error = keep as is)
-                local ok, r = pcall(C_UnitAuras.GetAuraDataByAuraInstanceID, "player", b.auraID)
-                if ok then a = r else keep = true end
-            end
-            if not keep then ApplyAura(b, a) end
-        end
         -- inactive buffs are hidden; shown dimmed only while unlocked so you can place the frame
         if not b.aura and c.locked and not BuffEditing() then b:Hide() else
             shown = shown + 1
@@ -643,7 +638,7 @@ local function UpdateBuffs(updateInfo, renderOnly)
             StyleBar(b, b.inverted or false)
             b:Show()
             if not b.aura then
-                local info = C_Spell.GetSpellInfo(name)
+                local info = b.entryInfo
                 b.icon:SetTexture(info and info.iconID or "Interface/Icons/INV_Misc_QuestionMark")
                 b.name:SetText(name)
                 b:SetAlpha(0.5)
@@ -652,6 +647,74 @@ local function UpdateBuffs(updateInfo, renderOnly)
             end
         end
     end
+    buffLayoutDirty, buffAppearanceDirty = false, false
+end
+local function RenderBuffAppearance()
+    for _, b in ipairs(buffRoot.items) do if b:IsShown() then StyleBar(b, b.inverted or false) end end
+    buffAppearanceDirty = false
+end
+local function ApplyAuraDelta(b, name, delta)
+    if Readable(b.auraID, "number") and delta.removed[b.auraID] then ApplyAura(b, nil) end
+    delta.durations = delta.durations or {}
+    for _, aura in ipairs(delta.added) do if Matches(aura, name) then RefreshAura(b, aura, delta.durations) end end
+    if Readable(b.auraID, "number") and delta.updated[b.auraID] then
+        local ok, aura = State.AuraInstance(delta, b.auraID)
+        if ok then
+            -- A refresh invalidates the old end time; an unreadable query keeps the last known state.
+            if aura then b.endsAt = nil end
+            RefreshAura(b, aura, delta.durations)
+        end
+    end
+end
+local function CollectBuffs(updateInfo)
+    local snapshot, delta, durations = nil, State.AuraDelta(updateInfo), {}
+    for i, name in ipairs(DB.buff.spells) do
+        local b = BuffBar(i)
+        local changed = ResetBuffBar(b, name)
+        if b.infoRevision ~= State.spellRevision then
+            b.entryInfo, b.infoRevision = State.Spell(name), State.spellRevision
+        end
+        local wasActive = b.aura ~= nil
+        local readableID = type(b.auraID) == "nil" or Readable(b.auraID, "number")
+        local handled = not changed and delta ~= nil and readableID
+        if handled then ApplyAuraDelta(b, name, delta) end
+        if not handled then
+            snapshot = snapshot or State.Auras("player")
+            local a, unknown = State.FindBuff(snapshot, name)
+            local keep = false
+            if not a and unknown and b.auraID then
+                -- scan is blind in combat; ask about the instance we already track (nil = gone, error = keep as is)
+                local ok, r = pcall(C_UnitAuras.GetAuraDataByAuraInstanceID, "player", b.auraID)
+                if ok then a = r else keep = true end
+            end
+            if not a and unknown and not b.auraID then keep = true end
+            if not a and b.synthetic and b.endsAt and GetTime() < b.endsAt and (unknown or not b.auraID) then keep = true end
+            local cast = hiddenCasts[name]
+            if not a and cast and GetTime() < cast.start + cast.duration then
+                SyntheticAura(b, cast.info, cast.start, cast.duration); keep = true
+            end
+            hiddenCasts[name] = nil
+            if not keep then RefreshAura(b, a, durations) end
+        end
+        if changed or wasActive ~= (b.aura ~= nil) then buffLayoutDirty = true end
+    end
+end
+local function UpdateBuffs(updateInfo, renderOnly)
+    if not buffRoot then return end
+    local c, wasVisible = DB.buff, buffRoot:IsShown()
+    -- Reset existing assignments even while hidden or disabled; never create hidden frames.
+    for i, b in ipairs(buffRoot.items) do
+        if ResetBuffBar(b, c.spells[i]) then buffLayoutDirty = true; buffDataDirty = true end
+        if i > #c.spells then b:Hide() end
+    end
+    local visible = BuffVisible(c)
+    buffRoot:SetShown(visible)
+    if not visible then buffDataDirty = true; return end
+    if not wasVisible then buffDataDirty, buffLayoutDirty = true, true end
+    if buffDataDirty then updateInfo, renderOnly = nil, false end
+    if not renderOnly then CollectBuffs(updateInfo); buffDataDirty = false end
+    if buffLayoutDirty then RenderBuffs() end
+    if buffAppearanceDirty then RenderBuffAppearance() end
 end
 
 -- Fallback animation and countdown text for readable (non-secret) timings.
@@ -671,11 +734,23 @@ local function StillRunning(b)
     return active
 end
 
+local nextBuffText = 0
+local function TimeText(b, left)
+    if not DB.buff.showTime or not b.time:IsShown() then return end
+    local minutes = left >= 60
+    local bucket = math.floor(math.max(0, left) / (minutes and 60 or 1))
+    if b.lastTimeText == bucket and b.lastTimeMinutes == minutes then return end
+    b.time:SetText(left >= 60 and ("%dm"):format(left / 60) or ("%d"):format(math.max(0, left)))
+    b.lastTimeText, b.lastTimeMinutes = bucket, minutes
+end
 local function BuffOnUpdate()
+    if not buffRoot:IsShown() then return end
     -- a bar whose time is up goes at once, without waiting for the game to report the aura gone (in combat it may not)
     local now, expired = GetTime(), false
     for _, b in ipairs(buffRoot.items) do
-        if b.endsAt and now >= b.endsAt + 0.2 and (b.aura or b.synthetic) then
+        if b.endsAt and now >= b.endsAt + 0.2 and (b.aura or b.synthetic)
+            and (not b.nextTimerCheck or now >= b.nextTimerCheck) then
+            b.nextTimerCheck = now + 0.2
             if b.synthetic or StillRunning(b) ~= true then
                 b.endsAt = nil
                 ApplyAura(b, nil)
@@ -683,21 +758,23 @@ local function BuffOnUpdate()
             end
         end
     end
-    if expired then UpdateBuffs() end
+    if expired then RenderBuffs() end
+    local updateText = now >= nextBuffText
+    if updateText then nextBuffText = now + 0.1 end
     for _, b in ipairs(buffRoot.items) do
         local a = b.aura
         if b:IsShown() and b.synthetic then
             local left = b.synthetic.start + b.synthetic.duration - GetTime()
             b.bar:SetMinMaxValues(0, b.synthetic.duration); b.bar:SetValue(math.max(0, left))
-            b.time:SetText(left >= 60 and ("%dm"):format(left / 60) or ("%d"):format(math.max(0, left)))
+            if updateText then TimeText(b, left) end
         elseif b:IsShown() and a then
-            local ok, dur, exp = pcall(function() return a.duration, a.expirationTime end)
-            if ok and Readable(dur, "number") and Readable(exp, "number") and dur > 0 then
+            local dur, exp = b.readableDuration, b.readableExpiration
+            if dur and exp and dur > 0 then
                 local left = exp - GetTime()
                 if not b.timerObject then b.bar:SetMinMaxValues(0, dur); b.bar:SetValue(left) end
-                b.time:SetText(left >= 60 and ("%dm"):format(left / 60) or ("%d"):format(math.max(0, left)))
-            else
-                b.time:SetText("")
+                if updateText then TimeText(b, left) end
+            elseif updateText and DB.buff.showTime and b.lastTimeText ~= "" then
+                b.time:SetText(""); b.lastTimeText = ""
             end
         end
     end
@@ -708,38 +785,49 @@ end
 local function IsOwnSpell(spellID)
     if C_SpellBook and C_SpellBook.IsSpellKnown then
         local ok, known = pcall(C_SpellBook.IsSpellKnown, spellID)
-        if ok then return known end
+        if ok and Readable(known, "boolean") then return known end
     end
-    return IsPlayerSpell and IsPlayerSpell(spellID)
+    local ok, known = pcall(IsPlayerSpell, spellID)
+    return ok and Readable(known, "boolean") and known
 end
 
 -- Ground effects and totems leave no aura on the player, so their length has to be known up front.
 local KNOWN_DURATION = { ["consecration"] = 8 }
+function SyntheticAura(b, info, start, duration)
+    b.aura = b.aura or { name = info.name, icon = info.iconID }
+    b.icon:SetTexture(info.iconID); b.name:SetText(info.name)
+    b.timerObject, b.lastTimeText = false, nil
+    b.nextTimerCheck = nil
+    StopBuffTimer(b)
+    b.synthetic = { start = start, duration = duration }
+    b.endsAt = start + duration
+    StyleBar(b, false); b.cd:Clear()
+end
 
 -- A successful cast is visible even in combat. Refresh the matching bar from it; if the client hides the
 -- aura, run a synthetic timer from the last known duration so the bar still resets on recast.
 local function OnCast(spellID)
-    local info = spellID and C_Spell.GetSpellInfo(spellID)
-    if not info or not buffRoot or not DB.buff.enabled or not IsOwnSpell(spellID) then return end
+    local info = Readable(spellID, "number") and State.Spell(spellID)
+    if not info or not Readable(info.name, "string") or not buffRoot or not DB.buff.enabled or not IsOwnSpell(spellID) then return end
+    local handled, visible, durations = false, BuffVisible(DB.buff), {}
+    local auraOK, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, spellID)
     for i, name in ipairs(DB.buff.spells) do
         if info.name:lower():find(name:lower(), 1, true) == 1 then
-            local b = BuffBar(i)
-            ResetBuffBar(b, name)
-            local ok, a = pcall(C_UnitAuras.GetPlayerAuraBySpellID, spellID)
-            local applied = ok and a and pcall(ApplyAura, b, a)
-            local duration = b.lastDuration or KNOWN_DURATION[info.name:lower()]
-            if not applied and duration then
-                b.aura = b.aura or { name = info.name, icon = info.iconID }
-                b.icon:SetTexture(info.iconID); b.name:SetText(info.name)
-                b.timerObject = false
-                b.synthetic = { start = GetTime(), duration = duration }
-                b.endsAt = b.synthetic.start + b.synthetic.duration
-                StyleBar(b, false)
-                b.cd:Clear(); b:Show(); b:SetAlpha(1)
-                return true
+            local b = buffRoot.items[i]
+            local duration = b and b.entry == name and b.lastDuration or KNOWN_DURATION[info.name:lower()]
+            if not visible then
+                if not aura and duration then hiddenCasts[name] = { info = info, start = GetTime(), duration = duration } end
+                buffDataDirty = true
+            else
+                b = BuffBar(i); ResetBuffBar(b, name)
+                local applied = auraOK and aura and pcall(RefreshAura, b, aura, durations)
+                if not applied and duration then SyntheticAura(b, info, GetTime(), duration); applied = true end
+                handled = handled or applied
             end
         end
     end
+    if handled then RenderBuffs() end
+    return handled
 end
 
 -- Buff reminders ------------------------------------------------------------
@@ -749,18 +837,23 @@ end
 -- Not registered with ForeverImmersion on purpose: it shows exactly when Immersion would fade things out.
 local remindRoot
 
+local learnedEntries, learnedRevision = {}, -1
 local function Learned(entry)
+    if learnedRevision ~= State.spellRevision then wipe(learnedEntries); learnedRevision = State.spellRevision end
+    if learnedEntries[entry] then return learnedEntries[entry] end
     local out = {}
     for name in entry:gmatch("[^/]+") do
         name = name:match("^%s*(.-)%s*$")
-        local info = name ~= "" and C_Spell.GetSpellInfo(name)
+        local info = name ~= "" and State.Spell(name)
         if info and IsOwnSpell(info.spellID) then out[#out + 1] = info end
     end
+    learnedEntries[entry] = out
     return out
 end
 
 -- What to call a reminder: the shared leading words ("Blessing of Might", "Blessing of Kings" -> "Blessing").
 local function Label(learned)
+    if learned.label then return learned.label end
     local words = {}
     for w in learned[1].name:gmatch("%S+") do words[#words + 1] = w end
     local n = #words
@@ -773,27 +866,14 @@ local function Label(learned)
         n = j
     end
     if n > 0 and (words[n] == "of" or words[n] == "the") then n = n - 1 end
-    return n > 0 and table.concat(words, " ", 1, n) or learned[1].name
+    learned.label = n > 0 and table.concat(words, " ", 1, n) or learned[1].name
+    return learned.label
 end
 
 -- true or false; nil when the unit's auras can't be read (secret), so it never reminds on a guess.
 -- mine: only buffs the player cast count (another paladin's Kings doesn't replace your Might).
 local function HasBuff(unit, learned, mine)
-    for i = 1, 40 do
-        local ok, a = pcall(C_UnitAuras.GetBuffDataByIndex, unit, i)
-        if not ok then return nil end
-        if not a then return false end
-        local okN, name, src = pcall(function() return a.name, a.sourceUnit end)
-        if not okN or not Readable(name, "string") then return nil end
-        for _, info in ipairs(learned) do
-            if name:find(info.name, 1, true) then   -- plain find: "Greater Blessing of Might" counts too
-                if not mine then return true end
-                if issecretvalue and issecretvalue(src) then return nil end
-                if src == "player" then return true end
-            end
-        end
-    end
-    return false
+    return State.HasBuff(State.Auras(unit), learned, mine)
 end
 
 -- A test that may come back secret: only a readable true counts.
@@ -807,6 +887,7 @@ local function AllyUnits()
     local function add(u)
         if not Yes(UnitExists, u) or not Yes(UnitIsPlayer, u) or Yes(UnitIsDeadOrGhost, u) then return end
         if UnitIsConnected and not Yes(UnitIsConnected, u) then return end
+        for _, existing in ipairs(out) do if Yes(UnitIsUnit, u, existing) then return end end
         out[#out + 1] = u
     end
     if c.party then for i = 1, 4 do add("party" .. i) end end
@@ -843,11 +924,11 @@ local function RemindLine(i)
 end
 
 local reminderLines = {}
-local function UpdateRemind(renderOnly)
+local function CollectReminders()
     local c = DB.remind
     if not remindRoot then return end
-    local lines = renderOnly and reminderLines or {}
-    if not renderOnly and c.enabled and not InCombatLockdown() and not UnitIsDeadOrGhost("player") and not UnitOnTaxi("player") then
+    local lines = {}
+    if c.enabled and not InCombatLockdown() and not UnitIsDeadOrGhost("player") and not UnitOnTaxi("player") then
         for _, entry in ipairs(c.self) do
             local learned = Learned(entry)
             if #learned > 0 and HasBuff("player", learned, false) == false then
@@ -887,7 +968,10 @@ local function UpdateRemind(renderOnly)
     if #lines == 0 and c.enabled and (not c.locked or ns.Kit.editMode or (ns.euiUnlockMode and not InCombatLockdown())) then
         lines[1] = { "Interface/Icons/Spell_Holy_FistOfJustice", "Buff reminder" }
     end
-    reminderLines = lines
+    return lines
+end
+local function RenderReminders(lines)
+    local c = DB.remind
     local width = 1
     for i, line in ipairs(lines) do
         local l = RemindLine(i)
@@ -902,11 +986,42 @@ local function UpdateRemind(renderOnly)
         l:Show()
         width = math.max(width, l:GetWidth())
     end
-    for i = #lines + 1, #remindRoot.items do remindRoot.items[i]:Hide() end
+    for i = #lines + 1, #remindRoot.items do
+        local line = remindRoot.items[i]
+        line:Hide(); line.text:SetText(""); line.icon:SetTexture(nil)
+    end
     remindRoot:SetSize(width, math.max(1, #lines * (c.size + c.gap) - c.gap))
     remindRoot:SetShown(#lines > 0)
 end
 
+local function UpdateRemind(renderOnly)
+    if not remindRoot then return end
+    if not renderOnly then reminderLines = CollectReminders() end
+    RenderReminders(reminderLines)
+end
+-- Coalesce bursts at the next frame. Unknown/legacy cooldown payloads request a full state refresh.
+local pending = { ids = {} }
+local queued = false
+local function FlushUpdates()
+    queued = false
+    local cd, buff, remind = pending.cd, pending.buff, pending.remind
+    pending.cd, pending.buff, pending.remind = nil, nil, nil
+    if cd then UpdateCd(false, cd ~= "all" and cd or nil, cd == "spell" and next(pending.ids) and pending.ids or nil) end
+    wipe(pending.ids)
+    if buff then UpdateBuffs() end
+    if remind then UpdateRemind() end
+end
+local function QueueUpdate(key)
+    pending[key] = true
+    if not queued then queued = true; C_Timer.NewTimer(0, FlushUpdates) end
+end
+function QueueCd(kind, id)
+    if pending.cd ~= kind then pending.cd = pending.cd and "all" or kind end
+    if kind == "spell" then
+        if Readable(id, "number") then pending.ids[id] = true else pending.cd = "all" end
+    end
+    if not queued then queued = true; C_Timer.NewTimer(0, FlushUpdates) end
+end
 local function UpdateAll() UpdateCd(); UpdateBuffs(); UpdateRemind() end
 
 local function Init()
@@ -914,12 +1029,17 @@ local function Init()
     cdRoot, buffRoot, remindRoot = MakeRoot("CD", "cd"), MakeRoot("Buff", "buff"), MakeRoot("Remind", "remind")
     buffRoot:SetScript("OnUpdate", BuffOnUpdate)
     C_Timer.NewTicker(2, function()
-        UpdateBuffs(); UpdateRemind() -- safety net for missed aura events, range changes
+        -- Two-second safety net for missed aura events and ally range changes, only for visible/enabled consumers.
+        State.InvalidateAuras()
+        UpdateBuffs(); UpdateRemind()
+        if State.bagsUnknown and cdRoot:IsShown() then State.InvalidateBags(); QueueCd("all") end
         if ns.ApplyCooldownAppearance then
-            for _, b in ipairs(cdRoot.items) do if b:IsShown() then ns.ApplyCooldownAppearance(b) end end
+            if cdRoot:IsShown() then
+                for _, b in ipairs(cdRoot.items) do if b:IsShown() then ns.ApplyCooldownAppearance(b) end end
+            end
         end
     end)
-    C_Timer.NewTicker(0.5, function() if cdWaiting then UpdateCd() end end)
+    C_Timer.NewTicker(0.5, function() if cdWaiting and cdRoot:IsShown() then QueueCd("all") end end)
     C_Timer.NewTicker(0.2, UpdateCdRange)
     -- Blizzard's Edit Mode: both trackers get Edit Mode's overlay and can be dragged there, per layout.
     for _, t in ipairs({ { cdRoot, "cd", "Cooldown icons" }, { buffRoot, "buff", "Buff bars" }, { remindRoot, "remind", "Buff reminders" } }) do
@@ -929,7 +1049,6 @@ local function Init()
             get = function() return DB[key].x, DB[key].y end,
             set = function(x, y)
                 ns.SaveTrackerPosition(key, x, y)
-
             end,
             enabled = function() return DB[key].enabled end,
             onToggle = function() ns.ConfigChanged(key, "editing") end,
@@ -939,6 +1058,11 @@ local function Init()
     UpdateAll()
 end
 
+local SPELL_DEPENDENCY_EVENTS = {
+    SPELLS_CHANGED = true, LEARNED_SPELL_IN_SKILL_LINE = true, UNIT_PET = true, PET_BAR_UPDATE = true,
+    UPDATE_SHAPESHIFT_FORM = true, UPDATE_SHAPESHIFT_FORMS = true, SPELL_UPDATE_ICON = true,
+    PLAYER_SPECIALIZATION_CHANGED = true, TRAIT_CONFIG_UPDATED = true,
+}
 local ev = CreateFrame("Frame")
 ev:RegisterEvent("ADDON_LOADED")
 ev:RegisterEvent("PLAYER_LOGIN")
@@ -949,20 +1073,49 @@ ev:RegisterEvent("PLAYER_ENTERING_WORLD")
 ev:RegisterEvent("SPELLS_CHANGED")
 ev:RegisterEvent("BAG_UPDATE_DELAYED")
 ev:RegisterEvent("BAG_UPDATE_COOLDOWN")
+pcall(ev.RegisterEvent, ev, "GET_ITEM_INFO_RECEIVED")
+for event in pairs(SPELL_DEPENDENCY_EVENTS) do
+    if event ~= "SPELLS_CHANGED" and event ~= "UNIT_PET" then pcall(ev.RegisterEvent, ev, event) end
+end
 ev:RegisterEvent("UNIT_PET")
 ev:RegisterEvent("PLAYER_TARGET_CHANGED")
 ev:RegisterEvent("PLAYER_REGEN_DISABLED")
 ev:RegisterEvent("PLAYER_REGEN_ENABLED")
-ev:SetScript("OnEvent", function(_, event, arg, info, ...)
-    if event == "ADDON_LOADED" then if arg == ADDON_NAME then Init() end
+ev:SetScript("OnEvent", function(_, event, eventArg, info, ...)
+    if event == "ADDON_LOADED" then if eventArg == ADDON_NAME then Init() end
     elseif event == "PLAYER_LOGIN" then
         do
             InitDB()
+            State.InvalidateSpells(); State.InvalidateBags(); State.InvalidateAuras()
             ns.Configuration.Apply({ cd = { all = true }, buff = { all = true }, remind = { all = true }, ranks = { all = true } })
         end
-    elseif event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" then UpdateCd(); UpdateBuffs()
-    elseif event == "UNIT_AURA" then UpdateBuffs(type(info) == "table" and info or nil)
-    elseif event == "UNIT_SPELLCAST_SUCCEEDED" then if not OnCast((...)) then UpdateBuffs() end elseif event == "SPELL_UPDATE_COOLDOWN" then UpdateCd() else UpdateAll() end
+    elseif event == "UNIT_AURA" then
+        State.InvalidateAuras("player")
+        UpdateBuffs(type(info) == "table" and info or nil)
+    elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
+        State.InvalidateAuras("player")
+        if not OnCast((...)) then QueueUpdate("buff") end
+    elseif event == "SPELL_UPDATE_COOLDOWN" then
+        local category, recovery, itemID = ...
+        -- Shared categories, GCDs and item use may change other icons too.
+        if type(category) ~= "nil" or type(recovery) ~= "nil" or type(itemID) ~= "nil" then QueueCd("all")
+        else
+            QueueCd("spell", eventArg)
+            if Readable(info, "number") then pending.ids[info] = true end -- base ID of an override
+        end
+    elseif event == "BAG_UPDATE_COOLDOWN" then QueueCd("item")
+    elseif event == "BAG_UPDATE_DELAYED" or event == "GET_ITEM_INFO_RECEIVED" then
+        State.InvalidateBags(); QueueCd("all")
+    elseif SPELL_DEPENDENCY_EVENTS[event] then
+        if (event == "UNIT_PET" or event == "PLAYER_SPECIALIZATION_CHANGED") and eventArg ~= "player" then return end
+        State.InvalidateSpells(); buffLayoutDirty = true
+        QueueCd("all"); QueueUpdate("buff"); QueueUpdate("remind")
+    elseif event == "PLAYER_ENTERING_WORLD" then
+        State.InvalidateSpells(); State.InvalidateBags(); State.InvalidateAuras()
+        QueueCd("all"); QueueUpdate("buff"); QueueUpdate("remind")
+    else
+        UpdateCd(true); UpdateBuffs(nil, true)
+    end
 end)
 
 -- Reminders watch party and target auras too, and go away the moment combat starts.
@@ -971,7 +1124,15 @@ for _, e in ipairs({ "UNIT_AURA", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED
     "UNIT_CONNECTION", "PLAYER_DEAD", "PLAYER_UNGHOST", "PLAYER_ALIVE" }) do rev:RegisterEvent(e) end
 rev:SetScript("OnEvent", function(_, event, unit)
     if event == "UNIT_AURA" and not (unit == "player" or unit == "target" or (type(unit) == "string" and unit:find("^party%d$"))) then return end
-    UpdateRemind()
+    if event == "UNIT_AURA" then
+        if unit ~= "player" then State.InvalidateAuras(unit) end -- the player handler owns this shared snapshot
+    elseif event == "GROUP_ROSTER_UPDATE" then
+        for i = 1, 4 do State.InvalidateAuras("party" .. i) end
+        State.InvalidateAuras("target")
+    elseif event == "PLAYER_TARGET_CHANGED" then State.InvalidateAuras("target")
+    elseif event == "UNIT_CONNECTION" then State.InvalidateAuras(unit)
+    elseif event == "PLAYER_DEAD" or event == "PLAYER_UNGHOST" or event == "PLAYER_ALIVE" then State.InvalidateAuras("player") end
+    if event == "PLAYER_REGEN_DISABLED" then UpdateRemind() else QueueUpdate("remind") end
 end)
 
 -- Settings (Options > AddOns) ------------------------------------------------------
@@ -986,23 +1147,26 @@ local function SetOpt(tracker, key) return function(value) ns.SetConfig(tracker,
 local function List(tracker, key) return function() return DB[tracker] and DB[tracker][key] end end
 
 -- How a cooldown entry looks in the settings: learned spell, item in your bags, or greyed until then.
-local function ResolveCd(name)
-    local info = Kit.SpellByName(name)
+local previewCd, previewBuff, previewSpellRevision, previewBagRevision = {}, {}, -1, -1
+local function PreviewDependencies()
+    if previewSpellRevision ~= State.spellRevision then
+        wipe(previewCd); wipe(previewBuff); previewSpellRevision = State.spellRevision
+    end
+    if previewBagRevision ~= State.bagRevision then wipe(previewCd); previewBagRevision = State.bagRevision end
+end
+local function ResolveCdUncached(name)
+    local info = State.Spell(name)
     if info and KnownSpell(info.spellID) then
         Kit.icons[name] = info.iconID
         local ok, sub = pcall(C_Spell.GetSpellSubtext, info.spellID)
         return { icon = info.iconID, spellID = info.spellID, tag = ok and Readable(sub, "string") and sub ~= "" and sub or "Spell" }
     end
     local it = BagItem(name)
-    if it then
-        local n = 0
-        for _, e in ipairs(Kit.Bags()) do if e.name:lower():find(name:lower(), 1, true) then n = n + e.count end end
-        return { icon = it.icon, tag = ("Item  ·  %d in your bags"):format(n) }
-    end
+    if it then return { icon = it.icon, tag = ("Item  Â·  %d in your bags"):format(it.count) } end
     return { icon = Kit.icons[name] or QUESTION, grey = true, tag = "Shows once you learn it, or carry it" }
 end
-local function ResolveBuff(name)
-    local info = Kit.SpellByName(name)
+local function ResolveBuffUncached(name)
+    local info = State.Spell(name)
     if info then Kit.icons[name] = info.iconID; return { icon = info.iconID, tag = "Any buff starting with \"" .. name .. "\"" } end
     for _, e in ipairs(Kit.Spellbook()) do
         if e.name:lower():find(name:lower(), 1, true) == 1 then
@@ -1010,6 +1174,16 @@ local function ResolveBuff(name)
         end
     end
     return { icon = Kit.icons[name] or QUESTION, grey = true, tag = "Shows once learned" }
+end
+local function ResolveCd(name)
+    PreviewDependencies()
+    previewCd[name] = previewCd[name] or ResolveCdUncached(name)
+    return previewCd[name]
+end
+local function ResolveBuff(name)
+    PreviewDependencies()
+    previewBuff[name] = previewBuff[name] or ResolveBuffUncached(name)
+    return previewBuff[name]
 end
 local function ResolveSpell(name)
     local info = Kit.SpellByName(name)
@@ -1034,7 +1208,6 @@ local rankPage = Kit.NewPage("Spell ranks")
 local profilePage = Kit.NewPage("Profiles")
 local subs = { cd = cdPage, buff = buffPage, remind = remindPage, ranks = rankPage, profiles = profilePage }
 ns.settingsPages = { main = main, cd = cdPage, buff = buffPage, remind = remindPage, ranks = rankPage, profiles = profilePage }
-local function RefreshPages() for _, p in pairs(ns.settingsPages) do if p.frame:IsShown() then p:Refresh() end end end
 
 -- Main page: what each part does, on or off, and the way in.
 main:Text("Right-click any icon or bar to open these settings. Unlock a tracker, or use Edit Mode, to move it.", "GameFontHighlightSmall")
@@ -1396,8 +1569,11 @@ end
 function ns.ApplyProfile(data)
     local candidate, err = ns.ProfileValidation.Validate(data)
     if not candidate then return nil, err end
+    local changes = ns.Configuration.Changes(DB, candidate)
+    changes.ranks = { all = true } -- profiles also reconcile markers on action buttons created since the last check
     ns.ProfileValidation.Commit(DB, candidate)
-    ns.Configuration.Apply({ cd = { all = true }, buff = { all = true }, remind = { all = true }, ranks = { all = true } }, { profile = true })
+    State.InvalidateSpells(); State.InvalidateBags(); State.InvalidateAuras()
+    ns.Configuration.Apply(changes, { profile = true })
     return true
 end
 -- Keep the original profile format for explicit imports; saved variables remain separate.
@@ -1408,7 +1584,7 @@ profilePage:Profiles({ tag = "FCT1", store = function() return ACCOUNT.profiles 
         if not ns.ProfileValidation.IsClass(class) then return nil end
         local name = LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[class] or class
         local mine = class == PlayerClass()
-        return { atlas = "classicon-" .. class:lower(), text = mine and name or (name .. " profile  ·  another class") }
+        return { atlas = "classicon-" .. class:lower(), text = mine and name or (name .. " profile  Â·  another class") }
     end })
 
 main.category = Kit.Register(main)
@@ -1424,14 +1600,14 @@ function ns.SaveTrackerPosition(key, x, y)
     local cfg = DB[key]
     if not cfg or type(x) ~= "number" or type(y) ~= "number" then return end
     cfg.x, cfg.y = x, y
-    ns.Configuration.Apply({ [key] = { x = true, y = true } })
+    ns.Configuration.Apply({ [key] = { x = true, y = true } }, { position = true })
     ns.Kit.SaveEditModePosition(key)
 end
 function ns.TrackerConfig(key) return DB[key] end
 function ns.TrackerRoot(key)
     if key == "cd" then return cdRoot elseif key == "buff" then return buffRoot elseif key == "remind" then return remindRoot end
 end
-function ns.ApplyTrackerConfiguration(key, effects)
+function ns.ApplyTrackerConfiguration(key, effects, options)
     local root, cfg = ns.TrackerRoot(key), DB[key]
     if not root or not cfg then return end
     if effects.position then
@@ -1441,23 +1617,38 @@ function ns.ApplyTrackerConfiguration(key, effects)
         root:EnableMouse(not cfg.locked); root.bg:SetShown(not cfg.locked)
     end
     if effects.position and not (effects.data or effects.layout or effects.appearance or effects.visibility) then return end
-    local renderOnly = not (effects.data or effects.visibility)
-    if key == "cd" then UpdateCd(renderOnly)
-    elseif key == "buff" then UpdateBuffs(nil, renderOnly)
-    elseif key == "remind" then UpdateRemind(renderOnly) end
+    if effects.data then
+        if key == "cd" then
+            cdResolutionDirty = true; wipe(previewCd)
+            for _, b in ipairs(cdRoot.items) do ReleaseCd(b) end
+        elseif key == "buff" then buffDataDirty = true; wipe(previewBuff); wipe(hiddenCasts)
+        elseif key == "remind" then wipe(learnedEntries) end
+    end
+    if key == "cd" then
+        if effects.layout or effects.visibility then cdLayoutDirty = true end
+        if effects.appearance then cdAppearanceDirty = true end
+        UpdateCd(not effects.data)
+    elseif key == "buff" then
+        if effects.layout or effects.visibility or effects.data then buffLayoutDirty = true end
+        if effects.appearance then buffAppearanceDirty = true end
+        UpdateBuffs(nil, not effects.data)
+    elseif key == "remind" then UpdateRemind(not (effects.data or effects.visibility)) end
 end
 function ns.RefreshConfigurationPages(changes, options)
+    if options.position then return end -- no settings page or preview displays screen coordinates
     for key, p in pairs(ns.settingsPages) do
         if (changes[key] or key == "main" or options.profile) and p.frame:IsShown() then p:Refresh() end
     end
-    if ns.RefreshTrackerSettings then ns.RefreshTrackerSettings(changes) end
+    if ns.RefreshTrackerSettings then
+        if options.profile then ns.RefreshTrackerSettings() else ns.RefreshTrackerSettings(changes, options) end
+    end
 end
 function ns.RefreshTrackers()
-    ns.Configuration.Apply({ cd = { editing = true }, buff = { editing = true }, remind = { editing = true } })
+    ns.Configuration.Apply({ cd = { all = true }, buff = { all = true }, remind = { all = true } })
 end
 function ns.BuffConfig() return DB.buff end
 function ns.BuffRoot() return buffRoot end
-function ns.RefreshBuffs() ns.ConfigChanged("buff", "editing") end
+function ns.RefreshBuffs() ns.ConfigChanged("buff", "all") end
 ns.PreviewBuff = PreviewBuff
 ns.PreviewCd = PreviewCd
 ns.PreviewRemind = PreviewRemind

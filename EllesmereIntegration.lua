@@ -162,19 +162,27 @@ end
 if not (EUI and EUI.RegisterPlugin) then return end
 
 local MODULES = { buff = "BuffBars", cd = "CooldownBar", remind = "Reminders" }
-local function Rebuild(tracker)
+local function Rebuild(tracker, refresh)
     local key = EUI.GetPluginModuleKey(PLUGIN, MODULES[tracker or "buff"])
     EUI:InvalidateModulePageCache(key)
-    if EUI:GetActiveModule() == key then EUI:RefreshPage(true) end
+    if refresh ~= false and EUI:GetActiveModule() == key then EUI:RefreshPage(true) end
 end
 ns.RefreshBuffSettings = Rebuild
-function ns.RefreshTrackerSettings(changes)
+function ns.RefreshTrackerSettings(changes, options)
     for _, tracker in ipairs({ "buff", "cd", "remind" }) do
-        if not changes or changes[tracker] then Rebuild(tracker) end
+        if not changes or changes[tracker] then
+            local fields = changes and changes[tracker]
+            local structural = fields and (fields.spells or fields.self or fields.ally or fields.byClass
+                or fields.orientation or fields.inheritBar or fields.all)
+            -- Keep an active slider/color picker alive while its own callback is running.
+            local refresh = not (options and options.source == "ellesmere") or structural
+            Rebuild(tracker, refresh and true or false)
+        end
     end
 end
 local function Get(key) return function() return ns.BuffConfig()[key] end end
-local function Set(key) return function(value) ns.SetConfig("buff", key, value) end end
+local EUI_CHANGE = { source = "ellesmere" }
+local function Set(key) return function(value) ns.SetConfig("buff", key, value, EUI_CHANGE) end end
 -- Keep the saved order visible; dragging only commits when released inside the list.
 local function OrderedList(parent, y, getList, onChange, options)
     local items = getList()
@@ -341,7 +349,7 @@ end
 local function TrackingEditor(parent, y, tracker, field, options)
     local function List() return ns.TrackerConfig(tracker)[field] end
     local function Changed()
-        ns.ConfigChanged(tracker, field)
+        ns.ConfigChanged(tracker, field, EUI_CHANGE)
     end
     y = y - OrderedList(parent, y, List, Changed, options)
     local pending = ""
@@ -414,7 +422,7 @@ local function BuildPage(pageName, parent, y)
     end
     local function Swatch(text, key)
         local _, h = W:ColorPicker(parent, text, y, function() return Color(ns.BuffConfig()[key]) end,
-            function(r, g, b, a) ns.SetConfig("buff", key, { r = r, g = g, b = b, a = a }) end, true)
+            function(r, g, b, a) ns.SetConfig("buff", key, { r = r, g = g, b = b, a = a }, EUI_CHANGE) end, true)
         y = y - h
     end
     local function Button(text, fn) local _, h = W:Button(parent, text, y, fn); y = y - h end
@@ -476,7 +484,7 @@ local function Controls(tracker, parent, y)
     function ui:section(text) local _, h = W:SectionHeader(parent, text, self.y); self.y = self.y - h end
     function ui:button(text, fn) local _, h = W:Button(parent, text, self.y, fn); self.y = self.y - h end
     function ui:get(key) return function() return ns.TrackerConfig(tracker)[key] end end
-    function ui:set(key) return function(value) ns.SetConfig(tracker, key, value) end end
+    function ui:set(key) return function(value) ns.SetConfig(tracker, key, value, EUI_CHANGE) end end
     function ui:toggle(text, key) local _, h = W:Toggle(parent, text, self.y, self:get(key), self:set(key)); self.y = self.y - h end
     function ui:slider(text, key, low, high)
         local _, h = W:Slider(parent, text, self.y, low, high, 1, self:get(key), self:set(key)); self.y = self.y - h
@@ -487,7 +495,7 @@ local function Controls(tracker, parent, y)
     end
     function ui:swatch(text, key)
         local _, h = W:ColorPicker(parent, text, self.y, function() return Color(ns.TrackerConfig(tracker)[key]) end,
-            function(r,g,b,a) ns.SetConfig(tracker, key, {r=r,g=g,b=b,a=a}) end, true)
+            function(r,g,b,a) ns.SetConfig(tracker, key, {r=r,g=g,b=b,a=a}, EUI_CHANGE) end, true)
         self.y = self.y - h
     end
     function ui:move()
@@ -570,7 +578,7 @@ local function BuildRemindersPage(pageName,parent,y)
         for _,class in ipairs({"WARRIOR","ROGUE","HUNTER","PALADIN","SHAMAN","DRUID","PRIEST","MAGE","WARLOCK"}) do
             local _, h = EUI.Widgets:Dropdown(parent, LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[class] or class,
                 ui.y, values, function() return ns.TrackerConfig("remind").byClass[class] or "" end,
-                function(v) ns.TrackerConfig("remind").byClass[class]=v; ns.ConfigChanged("remind", "byClass") end, order)
+                function(v) ns.TrackerConfig("remind").byClass[class]=v; ns.ConfigChanged("remind", "byClass", EUI_CHANGE) end, order)
             ui.y=ui.y-h
         end
     end
@@ -680,17 +688,16 @@ if EUI.RegisterUnlockElements and EUI.MakeUnlockElement then
             end,
             clearPos=function() ns.SaveTrackerPosition(tracker,0,defaultY) end,
             applyPos=function()
-                local root,c=ns.TrackerRoot(tracker),ns.TrackerConfig(tracker)
-                if root and c then root:ClearAllPoints(); root:SetPoint("CENTER",UIParent,"CENTER",c.x,c.y) end
+                ns.Configuration.Apply({ [tracker] = { x = true, y = true } }, { position = true })
             end,
         })
-
     end
     EUI:RegisterUnlockElements(elements,PLUGIN)
 end
 if EUI.RegisterUnlockModeListener then
     local sizes
     EUI:RegisterUnlockModeListener(PLUGIN, function(active, closeAction)
+        local changes = { cd = { editing = true }, buff = { editing = true }, remind = { editing = true } }
         if active then
             sizes = {}
             for _, tracker in ipairs({ "buff", "cd", "remind" }) do
@@ -705,7 +712,7 @@ if EUI.RegisterUnlockModeListener then
                     local c = ns.TrackerConfig(tracker)
                     if c then
                         c.width, c.height, c.size = saved.width, saved.height, saved.size
-                        ns.Configuration.Apply({ [tracker] = { width = true, height = true, size = true } })
+                        changes[tracker].width, changes[tracker].height, changes[tracker].size = true, true, true
                     end
                 end
             end
@@ -713,7 +720,6 @@ if EUI.RegisterUnlockModeListener then
         end
         ns.euiBuffUnlock = active
         ns.euiUnlockMode = active
-        ns.RefreshTrackers()
-
+        ns.Configuration.Apply(changes)
     end)
 end

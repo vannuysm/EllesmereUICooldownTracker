@@ -47,7 +47,7 @@ Choose **Custom** to configure appearance independently. Cooldown icons and remi
 
 ### Combat and target visibility
 
-The enabled cooldown tracker appears during combat or while targeting a unit you can attack. Buff bars offer three visibility choices: **Always**, **In combat**, or **In combat or with an attackable target**. EllesmereUI Unlock Mode keeps enabled trackers visible for positioning outside combat.
+The cooldown tracker and buff bars offer three visibility choices: **Always**, **In combat**, or **In combat or with an attackable target**. EllesmereUI Unlock Mode keeps enabled trackers visible for positioning outside combat.
 
 ### Range dimming and ready glows
 

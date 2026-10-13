@@ -110,7 +110,7 @@ local function InitDB()
     DB.cd = DB.cd or {}
     DB.buff = DB.buff or {}
     for k, v in pairs({ spells = Copy(def.cd), size = 36, gap = 4, orientation = "horizontal", growth = "right",
-        x = 0, y = -180, locked = true, inheritBar = "none", fontSize = 0, rangeDim = true, readyGlow = true,
+        x = 0, y = -180, locked = true, visibility = "target", inheritBar = "none", fontSize = 0, rangeDim = true, readyGlow = true,
         textColor = { r = 1, g = 1, b = 1, a = 1 }, borderEnabled = false, borderSize = 1,
         borderColor = { r = 0, g = 0, b = 0, a = 1 } }) do if DB.cd[k] == nil then DB.cd[k] = v end end
     DB.cd.orientation = DB.cd.orientation == "vertical" and "vertical" or "horizontal"
@@ -229,8 +229,11 @@ local UpdateCd
 local cdWaiting = false
 local function Readable(v, kind) return type(v) == kind and not (issecretvalue and issecretvalue(v)) end
 local function CdVisible()
-    if not DB.cd.enabled then return false end
-    if ns.euiUnlockMode and not InCombatLockdown() then return true end
+    local c = DB.cd
+    if not c.enabled then return false end
+    if ns.Kit.editMode or not c.locked or (ns.euiUnlockMode and not InCombatLockdown()) then return true end
+    if c.visibility == "always" then return true end
+    if c.visibility == "combat" then return InCombatLockdown() end
     if InCombatLockdown() then return true end
     local ok, attackable = pcall(UnitCanAttack, "player", "target")
     return ok and Readable(attackable, "boolean") and attackable
@@ -1258,12 +1261,15 @@ cdPage:OnRefresh(function()
     cdPreview:GetParent():SetHeight(DB.cd and DB.cd.orientation == "vertical" and 240 or 90)
 end)
 cdPage:Card("Look", 98, function(card, p)
-    p:CheckAt(card, 8, -28, "Show", Opt("cd", "enabled"), SetOpt("cd", "enabled"), "Show the cooldown icons in combat or while targeting a unit you can attack.")
+    p:CheckAt(card, 8, -28, "Show", Opt("cd", "enabled"), SetOpt("cd", "enabled"), "Turn the cooldown icons on or off.")
     p:CheckAt(card, 120, -28, "Countdown numbers", Opt("cd", "numbers"), SetOpt("cd", "numbers"), "Draw the remaining time on each icon.")
     p:CheckAt(card, 320, -28, "Locked", Opt("cd", "locked"), function(v) SetLocked(DB.cd, cdRoot, v) end, "Unlock to drag the cooldown tracker. A green box shows its area.")
     p:SliderAt(card, 14, -64, "Size", 16, 80, 1, Opt("cd", "size"), SetOpt("cd", "size"), 140)
     p:SliderAt(card, 320, -64, "Spacing", 0, 20, 1, Opt("cd", "gap"), SetOpt("cd", "gap"), 120)
 end)
+cdPage:Dropdown("Show bars", { { "always", "Always" }, { "combat", "In combat" },
+    { "target", "In combat or with an attackable target" } }, Opt("cd", "visibility"), SetOpt("cd", "visibility"),
+    "Choose when the cooldown icons are visible. Unlocking the tracker keeps it visible for positioning.")
 cdPage:Section("Layout")
 cdPage:Dropdown("Orientation", { { "horizontal", "Horizontal" }, { "vertical", "Vertical" } }, Opt("cd", "orientation"), function(v)
     DB.cd.orientation = v

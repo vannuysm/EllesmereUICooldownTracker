@@ -1,5 +1,6 @@
 # Local runtime diagnostics
 debug.log
+local/
 
 # Visual Studio Code workspace settings
 .vscode/

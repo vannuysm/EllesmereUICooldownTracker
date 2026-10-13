@@ -546,8 +546,10 @@ end
 local function BuildCooldownPage(pageName,parent,y)
     local ui=Controls("cd",parent,y)
     if pageName=="Display" then
-        ui:section("IN COMBAT OR WITH AN ATTACKABLE TARGET")
+        ui:section("VISIBILITY")
         ui:toggle("Enable cooldown bar","enabled")
+        ui:dropdown("Show bars", "visibility", { always = "Always", combat = "In combat", target = "In combat or with an attackable target" },
+            { "always", "combat", "target" })
         ui:move()
         ui:section("LAYOUT")
         ui:dropdown("Orientation","orientation",{horizontal="Horizontal",vertical="Vertical"},{"horizontal","vertical"},true)
@@ -645,11 +647,40 @@ if registered then
     ns.settingsPages.remind:Button("Ellesmere UI","Open Reminders",function() ns.OpenTrackerSettings("remind") end)
 end
 
--- Unlock Mode stores CENTER/CENTER coordinates. Keep a copy on load so Cancel can restore it.
+-- Unlock Mode edits the whole tracker's dimensions; translate them to bar/icon settings.
+local function ResizeTracker(tracker, axis, value)
+    local root, c = ns.TrackerRoot(tracker), ns.TrackerConfig(tracker)
+    if not root or not c or type(value) ~= "number" then return end
+    local count = 0
+    for _, item in ipairs(root.items) do if item:IsShown() then count = count + 1 end end
+    count = math.max(1, count)
+    local field, low, high
+    if tracker == "buff" then
+        -- Buff roots reserve space for every tracked entry, including inactive bars.
+        count = math.max(1, #c.spells)
+        field, low, high = axis, axis == "width" and 80 or 12, axis == "width" and 600 or 64
+        if (axis == "width" and c.orientation == "horizontal") or (axis == "height" and c.orientation ~= "horizontal") then
+            value = (value - (count - 1) * c.gap) / count
+        end
+    else
+        field, low, high = "size", tracker == "cd" and 16 or 12, tracker == "cd" and 80 or 64
+        if tracker == "remind" and axis == "width" then
+            -- The reminder width includes the icon, spacing and its text.
+            value = value - math.max(0, root:GetWidth() - c.size)
+        elseif (tracker == "cd" and axis == "width" and c.orientation ~= "vertical")
+            or (axis == "height" and (tracker == "remind" or c.orientation == "vertical")) then
+            value = (value - (count - 1) * c.gap) / count
+        end
+    end
+    c[field] = math.max(low, math.min(high, math.floor(value + 0.5)))
+    ns.RefreshTrackers()
+    Rebuild(tracker)
+end
+
 if EUI.RegisterUnlockElements and EUI.MakeUnlockElement then
     local elements={}
-    for i,info in ipairs({{"buff","EUICT_Buff","Ellesmere Buff Bars",-230},{"cd","EUICT_CD","Ellesmere Cooldown Bar",-180},
-        {"remind","EUICT_Remind","Ellesmere Reminders",-120}}) do
+    for i,info in ipairs({{"buff","EUICT_Buff","Buff Bars",-230},{"cd","EUICT_CD","Cooldown Bar",-180},
+        {"remind","EUICT_Remind","Buff Reminders",-120}}) do
         local tracker,key,label,defaultY=unpack(info)
         elements[i]=EUI.MakeUnlockElement({
             key=key,label=label,group="Cooldown Tracker",order=i,
@@ -658,8 +689,11 @@ if EUI.RegisterUnlockElements and EUI.MakeUnlockElement then
                 local root,c=ns.TrackerRoot(tracker),ns.TrackerConfig(tracker)
                 if root and c then return math.max(c.size or c.width,root:GetWidth()),math.max(c.size or c.height,root:GetHeight()) end
             end,
+            setWidth=function(_,width) ResizeTracker(tracker,"width",width) end,
+            setHeight=function(_,height) ResizeTracker(tracker,"height",height) end,
+            linkedDimensions=tracker~="buff",
             isHidden=function() local c=ns.TrackerConfig(tracker); return not c or not c.enabled end,
-            noResize=true,noAnchorTo=true,noAnchorTarget=true,
+            noAnchorTo=true,noAnchorTarget=true,
             savePos=function(_,point,relPoint,x,y) ns.SaveTrackerPosition(tracker,x,y) end,
             loadPos=function()
                 local c=ns.TrackerConfig(tracker)
@@ -671,13 +705,38 @@ if EUI.RegisterUnlockElements and EUI.MakeUnlockElement then
                 if root and c then root:ClearAllPoints(); root:SetPoint("CENTER",UIParent,"CENTER",c.x,c.y) end
             end,
         })
+        local moduleKey = registered and EUI.GetPluginModuleKey(PLUGIN, MODULES[tracker])
+        if moduleKey then
+            -- The standard cog menu resolves Element Options through this shared map.
+            EUI._ELEMENT_SETTINGS_MAP = EUI._ELEMENT_SETTINGS_MAP or {}
+            EUI._ELEMENT_SETTINGS_MAP[key] = { module = moduleKey, page = "Display" }
+        end
     end
     EUI:RegisterUnlockElements(elements,PLUGIN)
 end
 if EUI.RegisterUnlockModeListener then
-    EUI:RegisterUnlockModeListener(PLUGIN, function(active)
+    local sizes
+    EUI:RegisterUnlockModeListener(PLUGIN, function(active, closeAction)
+        if active then
+            sizes = {}
+            for _, tracker in ipairs({ "buff", "cd", "remind" }) do
+                local c = ns.TrackerConfig(tracker)
+                if c then sizes[tracker] = { width = c.width, height = c.height, size = c.size } end
+            end
+        else
+            -- Icon/row counts may change during Unlock Mode, so restore the settings
+            -- themselves rather than deriving them from the old total dimensions.
+            if closeAction == "discard" and sizes then
+                for tracker, saved in pairs(sizes) do
+                    local c = ns.TrackerConfig(tracker)
+                    if c then c.width, c.height, c.size = saved.width, saved.height, saved.size end
+                end
+            end
+            sizes = nil
+        end
         ns.euiBuffUnlock = active
         ns.euiUnlockMode = active
         ns.RefreshTrackers()
+        if not active then ns.RefreshTrackerSettings() end
     end)
 end

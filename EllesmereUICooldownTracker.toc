@@ -11,6 +11,8 @@
 ## AddonCompartmentFunc: EllesmereUICooldownTracker_OpenSettings
 
 Kit.lua
+ProfileValidation.lua
+ProfileCodec.lua
 KitUI.lua
 Ranks.lua
 EllesmereUICooldownTracker.lua

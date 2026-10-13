@@ -8,3 +8,5 @@ ignore:
     - *.log
     - /.github/
     - Logo.png
+    - /tests/
+    - /local/

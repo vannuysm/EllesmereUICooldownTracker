@@ -41,7 +41,6 @@ function ns.ClassDefaults()
     local ok, _, class = pcall(UnitClass, "player")
     return ns.CLASS_DEFAULTS[ok and type(class) == "string" and class or ""] or ns.CLASS_DEFAULTS.PALADIN
 end
-local function Copy(t) local o = {}; for i, v in ipairs(t) do o[i] = v end; return o end
 local function CdGrowth(c)
     if c.orientation == "vertical" then return c.growth == "up" and "up" or "down" end
     return c.growth == "left" and "left" or "right"
@@ -107,22 +106,17 @@ local function InitDB()
     EUICT_DB, EUICT_DBC = acct, DB
     if key then acct.chars[key] = DB end
     local def = ns.ClassDefaults()
-    DB.cd = DB.cd or {}
-    DB.buff = DB.buff or {}
-    for k, v in pairs({ spells = Copy(def.cd), size = 36, gap = 4, orientation = "horizontal", growth = "right",
-        x = 0, y = -180, locked = true, visibility = "target", inheritBar = "none", fontSize = 0, rangeDim = true, readyGlow = true,
-        textColor = { r = 1, g = 1, b = 1, a = 1 }, borderEnabled = false, borderSize = 1,
-        borderColor = { r = 0, g = 0, b = 0, a = 1 } }) do if DB.cd[k] == nil then DB.cd[k] = v end end
+    for section, fields in pairs(ns.ProfileValidation.Defaults()) do
+        DB[section] = DB[section] or {}
+        for field, value in pairs(fields) do if DB[section][field] == nil then DB[section][field] = value end end
+    end
+    for section, y in pairs({ cd = -180, buff = -230, remind = -120 }) do
+        if DB[section].x == nil then DB[section].x = 0 end
+        if DB[section].y == nil then DB[section].y = y end
+    end
     DB.cd.orientation = DB.cd.orientation == "vertical" and "vertical" or "horizontal"
     DB.cd.growth = CdGrowth(DB.cd)
-    for k, v in pairs({ spells = Copy(def.buff), width = 220, height = 24, gap = 4, x = 0, y = -230, locked = true,
-        orientation = "vertical", growth = "down", visibility = "always", texture = "default", inheritBar = "none",
-        color = { r = 0.2, g = 0.5, b = 0.9, a = 1 }, background = { r = 0, g = 0, b = 0, a = 0.6 },
-        borderEnabled = false, borderSize = 1, borderColor = { r = 0, g = 0, b = 0, a = 1 },
-        showIcon = true, showName = true, showTime = true, fontSize = 12, timeFontSize = 12,
-        textColor = { r = 1, g = 1, b = 1, a = 1 } }) do if DB.buff[k] == nil then DB.buff[k] = v end end
     DB.buff.growth = CdGrowth(DB.buff)
-    if DB.cd.numbers == nil then DB.cd.numbers = true end
     -- 2.0.0 added items (and the warlock's pet ability) to the defaults: give them once to settings saved before,
     -- at the end of the list. Items only show while carried, and anyone who removes one keeps it removed.
     if not DB.cd.items2 then
@@ -135,29 +129,11 @@ local function InitDB()
             end
         end
     end
-    if DB.cd.enabled == nil then DB.cd.enabled = true end
-    if DB.buff.enabled == nil then DB.buff.enabled = true end
-    -- Buff reminders: your class's buffs by default (blessings for a paladin); any list can be changed.
-    DB.remind = DB.remind or {}
-    for k, v in pairs({ x = 0, y = -120, size = 24, gap = 4, locked = true, inheritBar = "none", fontSize = 0,
-        textColor = { r = 1, g = 0.82, b = 0, a = 1 }, borderEnabled = false, borderSize = 1,
-        borderColor = { r = 0, g = 0, b = 0, a = 1 } }) do if DB.remind[k] == nil then DB.remind[k] = v end end
-    local r = DB.remind
-    if r.enabled == nil then r.enabled = true end
-    if r.party == nil then r.party = false end
-    if r.target == nil then r.target = false end
-    r.self = r.self or Copy(def.self)
-    r.ally = r.ally or Copy(def.ally)
-    -- spell ranks on the action bars: tell by default; swapping to the newest rank is opt-in
-    DB.ranks = DB.ranks or {}
-    if DB.ranks.enabled == nil then DB.ranks.enabled = true end
-    if DB.ranks.auto == nil then DB.ranks.auto = false end
-    DB.ranks.keep = DB.ranks.keep or {}
     -- icons seen once (account-wide), for spells not learned yet
     for k, v in pairs(ns.Kit.icons) do if ACCOUNT.icons[k] == nil then ACCOUNT.icons[k] = v end end
     ns.Kit.icons = ACCOUNT.icons
     -- the blessing each class should get from you; "" = any of the ally list (hybrids by default)
-    r.byClass = r.byClass or {}
+    local r = DB.remind
     for class, blessing in pairs(ns.CLASS_BLESSING) do
         if r.byClass[class] == nil then r.byClass[class] = blessing end
     end
@@ -1431,39 +1407,26 @@ rankPage:Icons(List("ranks", "keep"), { title = "Keep on their rank", sources = 
     onChange = function() ns.Ranks.ResetTold(); ns.Ranks.Check() end,
     subtitle = "Spells you keep low on purpose, e.g. a low rank for less mana" })
 
--- Profiles: everything except positions on screen, saved icons and the profiles themselves.
-local SKIP = { x = true, y = true, editLayouts = true, _savedAt = true, profiles = true, icons = true, items2 = true, _owner = true, _class = true }
-local function Clean(t)
-    if type(t) ~= "table" then return t end
-    local out = {}
-    for k, v in pairs(t) do if not SKIP[k] then out[k] = Clean(v) end end
-    return out
-end
-local function Merge(dst, src)
-    for k, v in pairs(src) do
-        if not SKIP[k] then
-            if type(v) == "table" and type(dst[k]) == "table" and #v == 0 and next(v) ~= nil then Merge(dst[k], v)
-            else dst[k] = Clean(v) end
-        end
-    end
-end
+-- Profiles contain only validated configurable fields; positions and storage stay with this character.
 function ns.SnapshotProfile()
-    local t = Clean(DB)
-    t._class = PlayerClass()   -- shown as a badge on the Profiles page; never loaded into settings
-    return t
+    return ns.ProfileValidation.Snapshot(DB, PlayerClass())
 end
 function ns.ApplyProfile(data)
-    Merge(DB, data)
-    InitDB()
-    UpdateAll()
-    RefreshPages()
+    local candidate, err = ns.ProfileValidation.Validate(data)
+    if not candidate then return nil, err end
+    ns.ProfileValidation.Commit(DB, candidate)
+    ns.RefreshTrackers()
+    ns.Ranks.ResetTold()
+    ns.Ranks.Check()
     if ns.RefreshTrackerSettings then ns.RefreshTrackerSettings() end
+    return true
 end
 -- Keep the original profile format for explicit imports; saved variables remain separate.
 profilePage:Profiles({ tag = "FCT1", store = function() return ACCOUNT.profiles end, snapshot = ns.SnapshotProfile, apply = ns.ApplyProfile,
+    decode = ns.DecodeProfile,
     badge = function(data)
         local class = type(data) == "table" and data._class
-        if type(class) ~= "string" then return nil end
+        if not ns.ProfileValidation.IsClass(class) then return nil end
         local name = LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[class] or class
         local mine = class == PlayerClass()
         return { atlas = "classicon-" .. class:lower(), text = mine and name or (name .. " profile  ·  another class") }

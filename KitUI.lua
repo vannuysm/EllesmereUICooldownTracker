@@ -763,94 +763,8 @@ function Page:IconGroups(list, opts)
 end
 
 -- Profiles --------------------------------------------------------------------------------------------------------------
--- Settings as text that can be pasted into chat or Discord and back: "<tag>:" followed by a Lua-like table literal.
--- Read back with a small parser (never loadstring), so a pasted string can only ever produce plain data.
-local function Encode(v)
-    local t = type(v)
-    if t == "string" then return (("%q"):format(v):gsub("\\\n", "\\n")) end
-    if t == "number" or t == "boolean" then return tostring(v) end
-    if t ~= "table" then return "nil" end
-    local parts, n = {}, #v
-    for i = 1, n do parts[#parts + 1] = Encode(v[i]) end
-    local keys = {}
-    for k in pairs(v) do
-        if not (type(k) == "number" and k >= 1 and k <= n and k % 1 == 0) then keys[#keys + 1] = k end
-    end
-    table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
-    for _, k in ipairs(keys) do
-        local key = (type(k) == "string" and k:match("^[%a_][%w_]*$")) and k or ("[" .. Encode(k) .. "]")
-        parts[#parts + 1] = key .. "=" .. Encode(v[k])
-    end
-    return "{" .. table.concat(parts, ",") .. "}"
-end
-Kit.Encode = Encode
-
-function Kit.Decode(s)
-    local pos = 1
-    local function ws() pos = s:find("[^%s]", pos) or #s + 1 end
-    local value
-    local function str()
-        local q = s:sub(pos, pos)
-        pos = pos + 1
-        local out = {}
-        while pos <= #s do
-            local ch = s:sub(pos, pos)
-            if ch == q then pos = pos + 1; return table.concat(out) end
-            if ch == "\\" then
-                local nx = s:sub(pos + 1, pos + 1)
-                local d = s:match("^%d%d?%d?", pos + 1)
-                if d then out[#out + 1] = string.char(tonumber(d) % 256); pos = pos + 1 + #d
-                else out[#out + 1] = ({ n = "\n", t = "\t", r = "\r" })[nx] or nx; pos = pos + 2 end
-            else out[#out + 1] = ch; pos = pos + 1 end
-        end
-        error("unfinished text")
-    end
-    function value(depth)
-        if depth > 20 then error("too deep") end
-        ws()
-        local ch = s:sub(pos, pos)
-        if ch == "{" then
-            pos = pos + 1
-            local t, i = {}, 1
-            while true do
-                ws()
-                if s:sub(pos, pos) == "}" then pos = pos + 1; return t end
-                local key
-                if s:sub(pos, pos) == "[" then
-                    pos = pos + 1; key = value(depth + 1); ws()
-                    if s:sub(pos, pos) ~= "]" then error("expected ]") end
-                    pos = pos + 1; ws()
-                    if s:sub(pos, pos) ~= "=" then error("expected =") end
-                    pos = pos + 1
-                else
-                    local name = s:match("^[%a_][%w_]*", pos)
-                    if name and name ~= "true" and name ~= "false" and s:match("^%s*=", pos + #name) then
-                        key = name
-                        pos = s:find("=", pos + #name, true) + 1
-                    end
-                end
-                local v = value(depth + 1)
-                if key == nil then t[i] = v; i = i + 1 else t[key] = v end
-                ws()
-                local sep = s:sub(pos, pos)
-                if sep == "," or sep == ";" then pos = pos + 1
-                elseif sep ~= "}" then error("expected , or }") end
-            end
-        elseif ch == "\"" or ch == "'" then return str()
-        elseif s:match("^true", pos) then pos = pos + 4; return true
-        elseif s:match("^false", pos) then pos = pos + 5; return false
-        else
-            local num = s:match("^-?%d+%.?%d*[eE]?[-+]?%d*", pos)
-            if num and num ~= "" and tonumber(num) then pos = pos + #num; return tonumber(num) end
-            error("unexpected " .. (ch ~= "" and ch or "end"))
-        end
-    end
-    local ok, v = pcall(value, 0)
-    if not ok then return nil, v end
-    return v
-end
-
--- opts = { tag = "FCT1", store = fn() -> table name -> data, snapshot = fn() -> data, apply = fn(data), onChange }
+-- snapshot/apply/decode return nil plus an error on failure; decode returns a validated name/data candidate.
+-- opts = { tag = "FCT1", store = fn() -> table name -> data, snapshot, apply, decode, onChange }
 function Page:Profiles(opts)
     local page = self
     -- saved profiles: one row each with Load and Delete
@@ -873,7 +787,11 @@ function Page:Profiles(opts)
     local function Save()
         local name = nameBox:GetText():match("^%s*(.-)%s*$")
         if name == "" then Say("Give the profile a name first.", 1, 0.5, 0.3) return end
-        opts.store()[name] = opts.snapshot()
+        local validName, nameError = ns.ProfileValidation.ValidateName(name)
+        if not validName then Say("Could not save: " .. nameError, 1, 0.5, 0.3) return end
+        local candidate, err = opts.snapshot()
+        if not candidate then Say("Could not save: " .. err, 1, 0.5, 0.3) return end
+        opts.store()[name] = candidate
         nameBox:SetText("")
         nameBox:ClearFocus()
         Say("Saved \"" .. name .. "\".", 0.4, 1, 0.4)
@@ -946,24 +864,34 @@ function Page:Profiles(opts)
     istatus:SetJustifyH("RIGHT")
 
     local function Share(name)
-        text:SetText(opts.tag .. ":" .. Encode({ name = name, data = opts.store()[name] }))
+        local validName, nameError = ns.ProfileValidation.ValidateName(name)
+        if not validName then Say("Could not share: " .. nameError, 1, 0.5, 0.3) return end
+        local candidate, err = ns.ProfileValidation.Validate(opts.store()[name])
+        if not candidate then Say("Could not share: " .. err, 1, 0.5, 0.3) return end
+        local raw = opts.tag .. ":" .. Kit.Encode({ name = name, data = candidate })
+        if #raw > ns.ProfileValidation.Limits.input then
+            Say("Could not share: profile text exceeds " .. ns.ProfileValidation.Limits.input .. " bytes.", 1, 0.5, 0.3) return
+        end
+        text:SetText(raw)
         text:SetFocus()
         text:HighlightText()
         istatus:SetText("Ctrl+C to copy")
         istatus:SetTextColor(0.4, 1, 0.4)
     end
     import:SetScript("OnClick", function()
-        local raw = (text:GetText() or ""):gsub("%s+$", ""):gsub("^%s+", "")
-        local body = raw:match("^" .. opts.tag .. ":(.*)$")
-        local v = body and Kit.Decode(body)
-        if type(v) ~= "table" or type(v.data) ~= "table" then
-            istatus:SetText("That isn't a profile from this addon.")
+        local v, err = opts.decode(text:GetText() or "")
+        if not v then
+            istatus:SetText("Could not import: " .. err)
             istatus:SetTextColor(1, 0.5, 0.3)
             return
         end
-        local name = type(v.name) == "string" and v.name ~= "" and v.name or "Imported"
+        local name = v.name
         local base, n = name, 2
-        while opts.store()[name] do name = base .. " " .. n; n = n + 1 end
+        while opts.store()[name] do
+            local suffix = " " .. n
+            name = base:sub(1, ns.ProfileValidation.Limits.name - #suffix) .. suffix
+            n = n + 1
+        end
         opts.store()[name] = v.data
         text:SetText("")
         text:ClearFocus()
@@ -986,7 +914,8 @@ function Page:Profiles(opts)
             r.badge:SetShown(b and b.atlas and pcall(r.badge.SetAtlas, r.badge, b.atlas) or false)
             r.from:SetText(b and b.text or "")
             r.load:SetScript("OnClick", function()
-                opts.apply(opts.store()[name])
+                local ok, err = opts.apply(opts.store()[name])
+                if not ok then Say("Could not load: " .. err, 1, 0.5, 0.3) return end
                 Say("Loaded \"" .. name .. "\".", 0.4, 1, 0.4)
                 if opts.onChange then opts.onChange() end
             end)

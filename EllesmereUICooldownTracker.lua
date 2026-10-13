@@ -542,6 +542,25 @@ local function StyleBar(b, inverted)
     end
 end
 
+-- Frames are pooled by index, but remembered aura/timer state belongs to the configured entry.
+-- An unchanged entry keeps its last readable duration for combat fallback and synthetic recasts.
+local function ResetBuffBar(b, entry)
+    if b.entry == entry then return false end
+    b.entry = entry
+    b.aura, b.auraID, b.lastDuration, b.endsAt, b.synthetic, b.timerObject = nil, nil, nil, nil, nil, nil
+    -- SetTimerDuration requires an object, not nil. Replace the old timer with a stopped, zero-duration one.
+    if b.bar.SetTimerDuration and C_DurationUtil and C_DurationUtil.CreateDuration then
+        pcall(b.bar.SetTimerDuration, b.bar, C_DurationUtil.CreateDuration())
+    end
+    b.bar:SetMinMaxValues(0, 1); b.bar:SetValue(0)
+    b.cd:Clear()
+    b.icon:SetTexture(nil); b.name:SetText(""); b.time:SetText("")
+    StyleBar(b, false)
+    b:SetAlpha(1)
+    b:Hide()
+    return true
+end
+
 -- Drive the bar from a duration object so secret timings still animate. Returns "remaining" when the client
 -- can count down on its own (normal look), "elapsed" when it can only fill up (inverted look), nil on failure.
 local function SetTimer(bar, dur)
@@ -593,14 +612,20 @@ local function UpdateBuffs(updateInfo)
     local c = DB.buff
     if not buffRoot then return end
     buffRoot:SetShown(BuffVisible(c))   -- hidden also stops the countdown OnUpdate
-    if not c.enabled then return end
     local n = #c.spells
+    for i = n + 1, #buffRoot.items do
+        local b = buffRoot.items[i]
+        ResetBuffBar(b, nil)
+        b:Hide()
+    end
+    if not c.enabled then return end
     SizeBuffRoot(buffRoot, c, n)
     local shown = 0
     for i, name in ipairs(c.spells) do
         local b = BuffBar(i)
+        local changed = ResetBuffBar(b, name)
         -- The update payload and its fields can themselves be secret in combat; any error falls back to a full rescan.
-        local handled = updateInfo and pcall(function()
+        local handled = not changed and updateInfo and pcall(function()
             if updateInfo.isFullUpdate then error("full") end
             if updateInfo.removedAuraInstanceIDs and b.auraID then
                 for _, id in ipairs(updateInfo.removedAuraInstanceIDs) do if id == b.auraID then ApplyAura(b, nil) end end
@@ -644,7 +669,6 @@ local function UpdateBuffs(updateInfo)
             end
         end
     end
-    for i = n + 1, #buffRoot.items do buffRoot.items[i]:Hide() end
 end
 
 -- Fallback animation and countdown text for readable (non-secret) timings.
@@ -717,6 +741,7 @@ local function OnCast(spellID)
     for i, name in ipairs(DB.buff.spells) do
         if info.name:lower():find(name:lower(), 1, true) == 1 then
             local b = BuffBar(i)
+            ResetBuffBar(b, name)
             local ok, a = pcall(C_UnitAuras.GetPlayerAuraBySpellID, spellID)
             local applied = ok and a and pcall(ApplyAura, b, a)
             local duration = b.lastDuration or KNOWN_DURATION[info.name:lower()]

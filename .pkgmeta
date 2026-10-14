@@ -10,3 +10,10 @@ ignore:
     - Logo.png
     - /tests/
     - /local/
+    - /pyproject.toml
+    - /uv.lock
+    - /.python-version
+    - /.venv/
+    - /.uv-cache/
+    - /.pytest_cache/
+    - /test-results/

@@ -4,6 +4,17 @@ local modules, widgets = ctx.modules, ctx.widgets
 local H = dofile(ctx.path("tests/unit/trackers/support.lua"))(ctx)
 local Empty, Spell, Prepare, Aura, Calls = H.Empty, H.Spell, H.Prepare, H.Aura, H.Calls
 
+local function MockTrackingEditor()
+    EllesmereUI.MakeFont = function(parent) return parent:CreateFontString() end
+    EllesmereUI.MakeBorder = function() end
+    EllesmereUI.MakeStyledButton = function(button, text, size, colors, onClick)
+        local label = button:CreateFontString()
+        label:SetText(text)
+        button:SetScript("OnClick", onClick)
+        return nil, nil, label
+    end
+end
+
 Test("cooldown events use cached resolution and coalesce a burst", function()
     Prepare(); Spell("One", 101); Spell("Two", 102)
     M.bags[0] = { { itemName = "Major Healthstone", itemID = 901, iconFileID = 9, stackCount = 2 },
@@ -100,14 +111,7 @@ Test("combat list edits reassign pooled cooldown icons and release surplus frame
     assert(first:IsShown() and first.spellID == 602 and first.ready and not first.icon.desaturated)
 end)
 Test("removing the first entry through either editor keeps the remaining spell visible", function()
-    EllesmereUI.MakeFont = function(parent) return parent:CreateFontString() end
-    EllesmereUI.MakeBorder = function() end
-    EllesmereUI.MakeStyledButton = function(button, text, size, colors, onClick)
-        local label = button:CreateFontString()
-        label:SetText(text)
-        button:SetScript("OnClick", onClick)
-        return nil, nil, label
-    end
+    MockTrackingEditor()
     for _, editor in ipairs({ "ellesmere", "standalone" }) do
         for _, combat in ipairs({ false, true }) do
             for _, active in ipairs({ false, true }) do
@@ -118,12 +122,6 @@ Test("removing the first entry through either editor keeps the remaining spell v
                 M.combat = combat
                 M.cooldowns[702] = { isActive = active, isOnGCD = false, startTime = 100, duration = 30 }
                 ns.SetConfig("cd", "spells", { "Judgement", "Holy Strike" })
-                local button = EUICT_CD.items[1]
-                local clearPoints, anchorResets = button.ClearAllPoints, 0
-                button.ClearAllPoints = function(self)
-                    anchorResets = anchorResets + 1
-                    clearPoints(self)
-                end
                 if editor == "ellesmere" then
                     local parent = CreateFrame("Frame")
                     modules.CooldownBar.buildPage("Tracked", parent, 0)
@@ -144,10 +142,51 @@ Test("removing the first entry through either editor keeps the remaining spell v
                 local point, relative, relativePoint, x, y = first:GetPoint()
                 assert(first:GetNumPoints() == 1 and point == "LEFT" and relative == EUICT_CD
                     and relativePoint == "LEFT" and x == 0 and y == 0)
-                assert(anchorResets == 0, "slot reuse must preserve the existing anchor during the rebuild")
                 assert(not second:IsShown() and second.spellID == nil)
-                button.ClearAllPoints = clearPoints
             end
+        end
+    end
+end)
+Test("missing native bounds recover after removing and readding Judgement", function()
+    MockTrackingEditor()
+    local refresh = EllesmereUI.RefreshPage
+    for _, combat in ipairs({ false, true }) do
+        for _, active in ipairs({ false, true }) do
+            Prepare(); Spell("Judgement", 701); Spell("Holy Strike", 679)
+            M.combat = combat
+            M.cooldowns[679] = { isActive = active, isOnGCD = false, startTime = 100, duration = 30 }
+            ns.SetConfig("cd", "spells", { "Judgement", "Holy Strike" })
+            -- Reproduce the observed native result after a settings rebuild: shown frames
+            -- retain their anchors and textures, but no longer have drawable bounds.
+            EllesmereUI.RefreshPage = function(...)
+                refresh(...)
+                for _, button in ipairs(EUICT_CD.items) do
+                    if button:IsShown() then button.rectUnavailable = true end
+                end
+            end
+            local parent = CreateFrame("Frame")
+            modules.CooldownBar.buildPage("Tracked", parent, 0)
+            M.Click(assert(M.Find(parent, "FontString", "Remove")).parent)
+            local first, second = EUICT_CD.items[1], EUICT_CD.items[2]
+            assert(first:IsShown() and first.spellID == 679 and first:GetNumPoints() == 1)
+            assert(first:GetRect() == nil and not second:IsShown())
+            M.calls = {}; M.Tick(0.2)
+            assert(first:GetRect() ~= nil, "the remaining spell must recover its drawable bounds")
+            assert(Calls("layout") == 1 and Calls("cooldown") == 0 and Calls("spell") == 0)
+
+            parent = CreateFrame("Frame")
+            modules.CooldownBar.buildPage("Tracked", parent, 0)
+            assert(M.Find(parent, "EditBox")):SetText("Judgement")
+            M.Click(assert(M.Find(parent, "FontString", "Add entry")).parent)
+            assert(first:IsShown() and second:IsShown() and first:GetRect() == nil and second:GetRect() == nil)
+            M.calls = {}; M.Tick(0.2)
+            assert(first:GetRect() ~= nil and second:GetRect() ~= nil, "both icons must recover after adding a spell")
+            assert(first.spellID == 679 and second.spellID == 701)
+            assert(first.icon.desaturated == active and first.ready == not active)
+            assert(Calls("layout") == 2 and Calls("cooldown") == 0 and Calls("bagSlots") == 0)
+            M.calls = {}; M.Tick(0.2)
+            assert(Calls("layout") == 0, "resolved icons must not be repositioned on every range tick")
+            EllesmereUI.RefreshPage = refresh
         end
     end
 end)

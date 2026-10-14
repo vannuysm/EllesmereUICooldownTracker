@@ -199,7 +199,7 @@ end
 -- Cooldown row --------------------------------------------------------------
 -- The game sends SPELL_UPDATE_COOLDOWN when a cooldown starts, not when it ends: an icon re-checks when its sweep
 -- runs out, and while any icon is grey a ticker re-checks too (in combat the timings are secret and there is no sweep).
-local UpdateCd, QueueCd
+local UpdateCd, QueueCd, AnchorCdButton
 local cdLayoutDirty, cdStateDirty = true, true
 local cdAppearanceDirty = true
 local cdWaiting = false
@@ -285,8 +285,11 @@ local function UpdateCdRange()
     if visible and not cdRoot:IsShown() then UpdateCd(); return end
     cdRoot:SetShown(visible)
     if not visible then cdStateDirty = true; return end
-    for _, b in ipairs(cdRoot.items) do
+    for i, b in ipairs(cdRoot.items) do
         if b:IsShown() then
+            -- A settings rebuild can leave a recorded anchor without drawable bounds.
+            -- Reapply it after the native layout has settled, as a manual reanchor does.
+            if not b:GetRect() then AnchorCdButton(b, cdRoot, DB.cd, i) end
             local brightness = DB.cd.rangeDim ~= false and b.spellID and OutOfRange(b.spellID, "target") and 0.35 or 1
             b.icon:SetVertexColor(brightness, brightness, brightness)
             SetCdGlow(b, InCombatLockdown() and b.ready)
@@ -327,13 +330,15 @@ local function SizeCdRoot(root, c, n)
     local length = math.max(1, n * c.size + (n - 1) * c.gap)
     if c.orientation == "vertical" then root:SetSize(c.size, length) else root:SetSize(length, c.size) end
 end
-local function PositionCdButton(b, root, c, i)
+function AnchorCdButton(b, root, c, i)
     local anchor = CD_ANCHORS[CdGrowth(c)]
     local offset = (i - 1) * (c.size + c.gap)
-    b:SetSize(c.size, c.size)
-    -- Update offsets in place; only a different growth direction needs a new anchor.
-    if b:GetNumPoints() ~= 1 or b:GetPoint() ~= anchor[1] then b:ClearAllPoints() end
+    b:ClearAllPoints()
     b:SetPoint(anchor[1], root, anchor[1], offset * anchor[2], offset * anchor[3])
+end
+local function PositionCdButton(b, root, c, i)
+    b:SetSize(c.size, c.size)
+    AnchorCdButton(b, root, c, i)
     if ns.ApplyCooldownAppearance then ns.ApplyCooldownAppearance(b) end
 end
 local function CdButton(i, root)

@@ -331,7 +331,8 @@ local function PositionCdButton(b, root, c, i)
     local anchor = CD_ANCHORS[CdGrowth(c)]
     local offset = (i - 1) * (c.size + c.gap)
     b:SetSize(c.size, c.size)
-    b:ClearAllPoints()
+    -- Update offsets in place; only a different growth direction needs a new anchor.
+    if b:GetNumPoints() ~= 1 or b:GetPoint() ~= anchor[1] then b:ClearAllPoints() end
     b:SetPoint(anchor[1], root, anchor[1], offset * anchor[2], offset * anchor[3])
     if ns.ApplyCooldownAppearance then ns.ApplyCooldownAppearance(b) end
 end
@@ -392,18 +393,17 @@ local function RenderCooldownLayout(entries)
     local c = DB.cd
     local sample = #entries == 0 and ns.euiUnlockMode and not InCombatLockdown()
     local n = sample and 1 or #entries
+    for i = n + 1, #cdRoot.items do ReleaseCd(cdRoot.items[i]) end
     SizeCdRoot(cdRoot, c, n)
     for i = 1, n do
         local entry, b = entries[i], CdButton(i)
-        PositionCdButton(b, cdRoot, c, i)
         b.spellID = entry and entry.spell and entry.spell.spellID or nil
         b.icon:SetTexture(entry and (entry.spell and entry.spell.iconID or entry.item.icon) or "Interface/Icons/INV_Misc_QuestionMark")
         b.cd:SetHideCountdownNumbers(not c.numbers)
-        if ns.ApplyCooldownAppearance then ns.ApplyCooldownAppearance(b) end
         if not entry then b.cd:Clear(); b.ready = false; b.icon:SetDesaturated(false) end
         b:Show()
+        PositionCdButton(b, cdRoot, c, i)
     end
-    for i = n + 1, #cdRoot.items do ReleaseCd(cdRoot.items[i]) end
     cdLayoutDirty, cdAppearanceDirty = false, false
 end
 local function RenderCooldownAppearance()
@@ -1620,7 +1620,8 @@ function ns.ApplyTrackerConfiguration(key, effects, options)
     if effects.data then
         if key == "cd" then
             cdResolutionDirty = true; wipe(previewCd)
-            for _, b in ipairs(cdRoot.items) do ReleaseCd(b) end
+            -- Rebind the visible pool in place; layout releases only surplus icons.
+            -- Clearing every icon here interrupts cooldowns that are still tracked.
         elseif key == "buff" then buffDataDirty = true; wipe(previewBuff); wipe(hiddenCasts)
         elseif key == "remind" then wipe(learnedEntries) end
     end

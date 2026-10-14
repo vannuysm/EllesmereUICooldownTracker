@@ -46,6 +46,9 @@ function methods:SetHeight(h) self.height = h end
 function methods:GetHeight() return self.height end
 function methods:GetFrameLevel() return 1 end
 function methods:SetPoint(...) M.Count("layout"); self.point = { ... } end
+function methods:ClearAllPoints() self.point = nil end
+function methods:GetNumPoints() return self.point and 1 or 0 end
+function methods:GetPoint() return unpack(self.point or {}) end
 function methods:SetTexture(value) self.textureValue = value end
 function methods:GetCenter() return self.centerX or 0, self.centerY or 0 end
 function methods:StartMoving() M.Count("drag"); self.moving = true end

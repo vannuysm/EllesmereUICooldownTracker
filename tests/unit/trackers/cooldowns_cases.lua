@@ -51,6 +51,106 @@ Test("range dimming, readiness and completion survive appearance changes", funct
     ns.SetConfig("cd", "readyGlow", false); assert(not b.glow:IsShown())
     ns.SetConfig("cd", "rangeDim", false); assert(b.icon.vertexColor[1] == 1)
 end)
+Test("removing a later spell in combat preserves the running cooldown", function()
+    Prepare(); Spell("One", 501); Spell("Two", 502)
+    ns.SetConfig("cd", "visibility", "combat")
+    M.combat = true
+    local duration = { id = 501 }
+    M.cooldowns[501] = { isActive = true, isOnGCD = false, startTime = 100, duration = 30 }
+    C_Spell.GetSpellCooldownDuration = function() return duration end
+    ns.SetConfig("cd", "spells", { "One", "Two" })
+    local first, second = EUICT_CD.items[1], EUICT_CD.items[2]
+    local hidden, cleared = false, false
+    local hide, clear = first.Hide, first.cd.Clear
+    first.Hide = function(self) hidden = true; hide(self) end
+    first.cd.Clear = function(self) cleared = true; clear(self) end
+
+    -- The settings editor mutates the live list before notifying the tracker.
+    table.remove(ns.TrackerConfig("cd").spells, 2)
+    ns.ConfigChanged("cd", "spells", { source = "ellesmere" })
+    M.Flush(); M.Tick(0.5)
+    assert(first:IsShown() and first.spellID == 501 and first.icon.textureValue == 1501)
+    assert(not hidden and not cleared, "the retained running cooldown must not be hidden or cleared")
+    assert(first.cd.cooldownObject == duration and first.icon.desaturated and not first.ready)
+    assert(not second:IsShown() and second.spellID == nil and second.cd.cooldownCleared)
+    assert(EUICT_CD:GetWidth() == ns.TrackerConfig("cd").size)
+
+    M.cooldowns[501] = { isActive = false, isOnGCD = false }
+    first.cd.scripts.OnCooldownDone(); M.Flush()
+    assert(first:IsShown() and first.ready and first.glow:IsShown() and not first.icon.desaturated)
+end)
+Test("combat list edits reassign pooled cooldown icons and release surplus frames", function()
+    Prepare(); Spell("One", 601); Spell("Two", 602)
+    M.combat = true
+    M.cooldowns[601] = { isActive = true, isOnGCD = false, startTime = 100, duration = 30 }
+    C_Spell.GetSpellCooldownDuration = function(id) return { id = id } end
+    ns.SetConfig("cd", "spells", { "One", "Two" })
+    local first, second = EUICT_CD.items[1], EUICT_CD.items[2]
+    ns.SetConfig("cd", "spells", { "Two", "One" })
+    assert(first:IsShown() and first.spellID == 602 and first.ready and not first.icon.desaturated)
+    assert(first.cd.cooldownCleared and first.glow:IsShown())
+    assert(second:IsShown() and second.spellID == 601 and not second.ready and second.icon.desaturated)
+    ns.SetConfig("cd", "spells", { "One" })
+    assert(first:IsShown() and first.spellID == 601 and not first.ready and first.icon.desaturated)
+    assert(first.cd.cooldownObject.id == 601 and not first.glow:IsShown())
+    assert(not second:IsShown() and second.spellID == nil and not second.waiting)
+    ns.SetConfig("cd", "spells", {})
+    assert(not first:IsShown() and first.spellID == nil and first.cd.cooldownCleared)
+    ns.SetConfig("cd", "spells", { "Two" })
+    assert(first:IsShown() and first.spellID == 602 and first.ready and not first.icon.desaturated)
+end)
+Test("removing the first entry through either editor keeps the remaining spell visible", function()
+    EllesmereUI.MakeFont = function(parent) return parent:CreateFontString() end
+    EllesmereUI.MakeBorder = function() end
+    EllesmereUI.MakeStyledButton = function(button, text, size, colors, onClick)
+        local label = button:CreateFontString()
+        label:SetText(text)
+        button:SetScript("OnClick", onClick)
+        return nil, nil, label
+    end
+    for _, editor in ipairs({ "ellesmere", "standalone" }) do
+        for _, combat in ipairs({ false, true }) do
+            for _, active in ipairs({ false, true }) do
+                Prepare()
+                local judgement = Spell("Judgement", 701)
+                local holyStrike = Spell("Holy Strike", 702)
+                judgement.iconID, holyStrike.iconID = 135959, 626003
+                M.combat = combat
+                M.cooldowns[702] = { isActive = active, isOnGCD = false, startTime = 100, duration = 30 }
+                ns.SetConfig("cd", "spells", { "Judgement", "Holy Strike" })
+                local button = EUICT_CD.items[1]
+                local clearPoints, anchorResets = button.ClearAllPoints, 0
+                button.ClearAllPoints = function(self)
+                    anchorResets = anchorResets + 1
+                    clearPoints(self)
+                end
+                if editor == "ellesmere" then
+                    local parent = CreateFrame("Frame")
+                    modules.CooldownBar.buildPage("Tracked", parent, 0)
+                    M.Click(assert(M.Find(parent, "FontString", "Remove")).parent)
+                else
+                    local page = ns.settingsPages.cd
+                    page.frame:Show(); page:Refresh()
+                    local tile = assert(M.Find(page.frame, "FontString", "Judgement")).parent
+                    tile.scripts.OnClick(tile, "RightButton")
+                    page.frame:Hide()
+                end
+                M.Flush(); M.Tick(0.5); M.Tick(0.2)
+                local first, second = EUICT_CD.items[1], EUICT_CD.items[2]
+                assert(#ns.TrackerConfig("cd").spells == 1 and ns.TrackerConfig("cd").spells[1] == "Holy Strike")
+                assert(first:IsShown() and first.spellID == 702 and first.icon.textureValue == holyStrike.iconID,
+                    "remaining spell must move into the first slot and stay visible")
+                assert(first.icon.desaturated == active and first.ready == not active)
+                local point, relative, relativePoint, x, y = first:GetPoint()
+                assert(first:GetNumPoints() == 1 and point == "LEFT" and relative == EUICT_CD
+                    and relativePoint == "LEFT" and x == 0 and y == 0)
+                assert(anchorResets == 0, "slot reuse must preserve the existing anchor during the rebuild")
+                assert(not second:IsShown() and second.spellID == nil)
+                button.ClearAllPoints = clearPoints
+            end
+        end
+    end
+end)
 Test("form/override and pet-bar dependencies update cached spell identities", function()
     Prepare(); Spell("Form Spell", 1501); ns.SetConfig("cd", "spells", { "Form Spell" })
     M.spellInfo["Form Spell"] = { name = "Form Spell", spellID = 1502, iconID = 15020 }; M.known[1502] = true

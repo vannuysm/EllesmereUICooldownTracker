@@ -59,6 +59,41 @@ Dedicated **Buff Bars**, **Cooldown Bar**, and **Reminders** settings pages incl
 
 Use `/euict buff`, `/euict cd`, or `/euict reminders` to open the corresponding integrated settings directly. The standalone settings also include buttons to open these pages.
 
+### Manage profiles in EllesmereUI
+
+Open **Cooldown Tracker > Manage Profiles**, or run `/euict profiles`. The panel has
+two tabs: **Profiles** and **Import / Export**.
+
+The banner on both tabs shows this character's active profile. Settings edits
+automatically update that account-wide profile. **Save as…** creates a separate
+profile from the current setup and makes it active, so future edits update the new
+profile. The active profile persists
+after reload. Other characters pick up its latest settings when they log in or use
+the profile again. Screen positions remain with each character and are excluded
+from profiles. Without an active profile, settings still persist for the character.
+
+The **Profiles** tab lists every saved profile, its class, and its **Active** marker.
+The active row's **Use** button is disabled. Click **Use** on another profile to
+switch immediately, or open its **…** menu to **Rename**,
+**Duplicate**, **Export**, or **Delete**. Naming happens in a focused dialog; duplicate
+names are rejected. Deleting a saved profile requires confirmation and keeps
+character settings intact. The library is shared
+with this addon's standalone Profiles page.
+The rows and active-profile banner show the results of profile actions directly;
+there are no additional success announcements. Errors stay in the relevant dialog
+or beside the import/export controls.
+
+The **Import / Export** tab has separate text boxes. Choose **Current settings**
+or a saved profile from the **Profile** dropdown. The
+export text fills automatically; press **Ctrl+C** to copy the selected text, or
+click the text box to select it again. A row's **Export** action opens this tab with
+that profile selected and its export ready. Paste an FCPT or fork export and click **Preview import** to
+inspect its name, class, and tracked-entry counts before adding it. If its name exists,
+choose **Overwrite**, **Keep both** with a unique numeric suffix, or **Cancel**.
+Imports retain the compatible `FCT1` format and do not activate automatically;
+**Use now** is an optional next step. Failed imports retain the pasted text. Without
+EllesmereUI, `/euict profiles` opens the standalone Profiles page.
+
 ### Unlock Mode and position persistence
 
 Move buff bars, cooldown icons, and reminders through EllesmereUI Unlock Mode, with inactive or sample content available when needed for positioning. Position changes also update the active Blizzard Edit Mode layout, preventing an older saved position from returning after a reload or when entering the world.
@@ -117,10 +152,17 @@ You can also use `python scripts/deploy.py` directly with Python 3.12 or newer.
 Local packaging uses [BigWigsMods Packager](https://github.com/BigWigsMods/packager),
 with the exact commit and arguments read from `.github/workflows/release.yml`.
 The script downloads and caches that revision's `release.sh` under `.release/tools/`
-on its first run. Packaging follows the same `.pkgmeta`, file processing, version
-substitutions, and changelog generation as CI. Tracked files include working tree
-edits; Packager excludes untracked files, so use `git add` for new addon files
-before deploying them.
+on its first run. Local builds generate a separate `release-local.sh` from that
+pinned script, changing its Git exclusion query to include untracked source files
+while still honoring `.gitignore` and `.pkgmeta`. New addon files can be deployed
+without staging them. The cached upstream script, Git index, and release workflow
+remain unchanged; keyword processing, version substitutions, and changelog generation
+still use Packager. The script rejects an upstream filter change rather than silently
+applying an outdated adaptation.
+
+The deployment script checks that every file listed in the packaged TOC exists
+before replacing the installed addon. An incomplete package reports the missing
+file and leaves the existing installation in place.
 
 Install Bash 4.3 or newer, Git, awk, grep, sed, and curl. On Windows, install Git
 for Windows; its Git Bash is detected automatically. You can select another Bash

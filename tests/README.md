@@ -50,6 +50,7 @@ tests/
       test_codec.py                 # FCT1 syntax, round trips, resource guards
       test_validation.py            # schema, bounds, atomic failures, normalization
       test_application.py           # imports, saved profiles, storage references
+      test_management.py            # automatic saves, shared profiles, UI actions, imports/exports
       test_fixtures.py              # portable legacy payload contract
       *_cases.lua                   # existing assertions against real Lua code
       support.lua
@@ -79,9 +80,8 @@ tests/
       BUFF_STATE_VERIFICATION.md    # detailed buff-state regression procedures
 ```
 
-The 98 profile regressions and 22 tracker/standalone cases each run independently
-on both runtimes. Four additional fixture checks and 56 performance cases bring
-the suite to 300 pytest cases. Each behavioral case receives a fresh namespace,
+Profile regressions and tracker/standalone cases each run independently on both
+runtimes, alongside fixture, deployment, and performance checks. Each behavioral case receives a fresh namespace,
 mock state, frame pool, event queue, and Lua VM. A failure never depends on which
 case previously ran. Python test modules parametrize existing Lua assertions so
 pytest can select, report, and rerun individual cases. The Lua bridge is test

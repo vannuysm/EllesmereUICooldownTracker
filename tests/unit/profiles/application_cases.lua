@@ -31,6 +31,8 @@ Test("UI successful import stores a detached normalized profile without applying
     assert(candidate and candidate.cd.spells and next(candidate.cd.spells) == nil and candidate._owner == nil and candidate.cd.future == nil)
     assert(candidate._class == "HUNTER" and text:GetText() == "" and Kit.Encode(EUICT_DBC) == settings)
     text:SetText('FCT1:{name="Imported UI",data={}}'); M.Click(button)
+    assert(not EUICT_DB.profiles["Imported UI 2"] and text:GetText() ~= "")
+    M.Click(M.Find(profilePage.blocks[3], "Button", "Keep both"))
     assert(EUICT_DB.profiles["Imported UI 2"])
 end)
 for _, value in ipairs({ { cd = { spells = 1 } }, "broken" }) do
@@ -88,6 +90,7 @@ Test("maximum-length import name collisions remain exportable", function()
     local raw = 'FCT1:' .. Kit.Encode({ name = name, data = {} })
     text:SetText(raw); M.Click(button)
     text:SetText(raw); M.Click(button)
+    M.Click(M.Find(profilePage.blocks[3], "Button", "Keep both"))
     local second = name:sub(1, V.Limits.name - 2) .. " 2"
     local row = assert(M.Find(libraryBlock, "FontString", second)).parent
     M.Click(row.share)

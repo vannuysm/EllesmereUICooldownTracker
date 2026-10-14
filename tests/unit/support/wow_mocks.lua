@@ -34,10 +34,15 @@ function methods:CreateFontString() return Object("FontString", self) end
 function methods:GetParent() return self.parent end
 function methods:SetText(text) M.Count("text"); self.textValue = text; if self.scripts.OnTextChanged then self.scripts.OnTextChanged(self) end end
 function methods:GetText() return self.textValue or "" end
+function methods:SetFocus() self.focused = true end
+function methods:ClearFocus() self.focused = false end
+function methods:HighlightText() self.highlighted = true end
 function methods:SetTextColor(...) self.textColor = { ... } end
 function methods:GetStringWidth() return #self:GetText() * 6 end
 function methods:SetChecked(value) self.checked = value end
 function methods:GetChecked() return self.checked end
+function methods:SetEnabled(value) self.enabled = value end
+function methods:IsEnabled() return self.enabled ~= false end
 function methods:SetSize(w, h) self.width, self.height = w, h end
 function methods:GetSize() return self.width, self.height end
 function methods:SetWidth(w) self.width = w end
@@ -162,12 +167,21 @@ C_Spell = {
     IsSpellInRange = function(id, unit) return not (M.outOfRange and M.outOfRange[unit]) end,
 }
 EllesmereUI = {
+    MakeFont = function(parent) return parent:CreateFontString() end,
+    MakeBorder = Noop,
+    MakeStyledButton = function(button, text, _, _, callback)
+        local label = button:CreateFontString()
+        label:SetText(text)
+        button:SetScript("OnClick", callback)
+        return nil, nil, label
+    end,
     RegisterPlugin = Noop,
     GetPluginModuleKey = function(_, module) return module end,
     InvalidateModulePageCache = function(_, key) M.invalidated[key] = (M.invalidated[key] or 0) + 1 end,
-    GetActiveModule = function() return "CooldownBar" end,
+    GetActiveModule = function() return M.activeModule or "CooldownBar" end,
     RefreshPage = function() M.pageRefreshes = M.pageRefreshes + 1 end,
     RegisterPluginModule = Noop,
+    RegisterUnlockModeListener = function(_, _, callback) M.unlockListener = callback end,
 }
 function M.Fire(event, ...)
     -- Event registration during a callback must not extend the current dispatch.

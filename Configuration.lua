@@ -46,6 +46,10 @@ end
 -- Call after a validated profile commit or an editor's valid, in-place list mutation.
 function C.Apply(changes, options)
     options = options or {}
+    if ns.Profiles and not (options.profile or options.initialization or options.refresh or options.position) then
+        local _, err = ns.Profiles.AutoSave(changes)
+        if err then print("EllesmereUICooldownTracker: Could not automatically save the active profile: " .. err) end
+    end
     for section, fields in pairs(changes) do
         if section == "ranks" then
             if fields.enabled or fields.keep or fields.all then ns.Ranks.ResetTold() end

@@ -763,8 +763,29 @@ function Page:IconGroups(list, opts)
 end
 
 -- Profiles --------------------------------------------------------------------------------------------------------------
+-- Validate before detecting a name collision. A duplicate stays read-only until the caller chooses.
+function Kit.ImportProfile(opts, raw, choice)
+    local candidate, err = opts.decode(raw)
+    if not candidate then return nil, err end
+    if choice ~= nil and choice ~= "overwrite" and choice ~= "keep" then return nil, "Invalid duplicate import choice." end
+    local store, name = opts.store(), candidate.name
+    if store[name] ~= nil then
+        if not choice then return nil, "A profile with this name already exists.", name end
+        if choice == "keep" then
+            local base, n = name, 2
+            repeat
+                local suffix = " " .. n
+                name = base:sub(1, ns.ProfileValidation.Limits.name - #suffix) .. suffix
+                n = n + 1
+            until store[name] == nil
+        end
+    end
+    store[name] = candidate.data
+    return name
+end
+
 -- snapshot/apply/decode return nil plus an error on failure; decode returns a validated name/data candidate.
--- opts = { tag = "FCT1", store = fn() -> table name -> data, snapshot, apply, decode, onChange }
+-- opts = { tag = "FCT1", store = fn() -> table name -> data, snapshot, apply, decode, onChange, onStoreChange, onSave }
 function Page:Profiles(opts)
     local page = self
     -- saved profiles: one row each with Load and Delete
@@ -792,10 +813,12 @@ function Page:Profiles(opts)
         local candidate, err = opts.snapshot()
         if not candidate then Say("Could not save: " .. err, 1, 0.5, 0.3) return end
         opts.store()[name] = candidate
+        if opts.onSave then opts.onSave(name) end
         nameBox:SetText("")
         nameBox:ClearFocus()
         Say("Saved \"" .. name .. "\".", 0.4, 1, 0.4)
         Update()
+        if opts.onStoreChange then opts.onStoreChange() end
     end
     save:SetScript("OnClick", Save)
     nameBox:SetScript("OnEnterPressed", Save)
@@ -863,6 +886,29 @@ function Page:Profiles(opts)
     istatus:SetWidth(96)
     istatus:SetJustifyH("RIGHT")
 
+    local conflict = self:AddBlock(120, 8)
+    local conflictTop = Heading(conflict, "Duplicate profile", "Overwrite replaces the saved profile. Keep both adds the import with a unique name.")
+    conflict:SetHeight(conflictTop + 76)
+    local conflictName = conflict:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    conflictName:SetPoint("TOPLEFT", PAD, -conflictTop)
+    conflictName:SetPoint("TOPRIGHT", -PAD, -conflictTop)
+    conflictName:SetJustifyH("LEFT")
+    conflictName:SetWordWrap(true)
+    local pendingImport
+    local function CancelImport()
+        pendingImport = nil
+        conflict:Hide()
+        page:Layout()
+    end
+    conflict:Hide()
+    text:HookScript("OnTextChanged", function()
+        if pendingImport and text:GetText() ~= pendingImport.raw then
+            CancelImport()
+            istatus:SetText("Import text changed. Click Import again.")
+            istatus:SetTextColor(1, 1, 1)
+        end
+    end)
+
     local function Share(name)
         local validName, nameError = ns.ProfileValidation.ValidateName(name)
         if not validName then Say("Could not share: " .. nameError, 1, 0.5, 0.3) return end
@@ -878,27 +924,48 @@ function Page:Profiles(opts)
         istatus:SetText("Ctrl+C to copy")
         istatus:SetTextColor(0.4, 1, 0.4)
     end
-    import:SetScript("OnClick", function()
-        local v, err = opts.decode(text:GetText() or "")
-        if not v then
+    local function Import(choice)
+        local raw = pendingImport and pendingImport.raw or (text:GetText() or "")
+        local name, err, duplicate = Kit.ImportProfile(opts, raw, choice)
+        if duplicate then
+            pendingImport = { raw = raw }
+            conflictName:SetText('A profile named "' .. duplicate .. '" already exists. Choose what to do with this import:')
+            conflict:Show()
+            page:Layout()
+            istatus:SetText("Choose Overwrite or Keep both below.")
+            istatus:SetTextColor(1, 0.8, 0.3)
+            return
+        end
+        if not name then
             istatus:SetText("Could not import: " .. err)
             istatus:SetTextColor(1, 0.5, 0.3)
             return
         end
-        local name = v.name
-        local base, n = name, 2
-        while opts.store()[name] do
-            local suffix = " " .. n
-            name = base:sub(1, ns.ProfileValidation.Limits.name - #suffix) .. suffix
-            n = n + 1
-        end
-        opts.store()[name] = v.data
+        CancelImport()
         text:SetText("")
         text:ClearFocus()
         istatus:SetText("Added \"" .. name .. "\". Load it above.")
         istatus:SetTextColor(0.4, 1, 0.4)
         Update()
-    end)
+        if opts.onStoreChange then opts.onStoreChange() end
+    end
+    import:SetScript("OnClick", function() Import() end)
+    for i, info in ipairs({ { "Overwrite", "overwrite" }, { "Keep both", "keep" }, { "Cancel" } }) do
+        local button = Make("Button", conflict, "UIPanelButtonTemplate")
+        button:SetSize(100, 22)
+        button:SetPoint("BOTTOMLEFT", PAD + (i - 1) * 108, 4)
+        button:SetText(info[1])
+        local choice = info[2]
+        button:SetScript("OnClick", function()
+            if not pendingImport then return end
+            if choice then Import(choice)
+            else
+                CancelImport()
+                istatus:SetText("Import cancelled.")
+                istatus:SetTextColor(1, 1, 1)
+            end
+        end)
+    end
 
     Update = function()
         local names = {}
@@ -914,7 +981,7 @@ function Page:Profiles(opts)
             r.badge:SetShown(b and b.atlas and pcall(r.badge.SetAtlas, r.badge, b.atlas) or false)
             r.from:SetText(b and b.text or "")
             r.load:SetScript("OnClick", function()
-                local ok, err = opts.apply(opts.store()[name])
+                local ok, err = opts.apply(opts.store()[name], name)
                 if not ok then Say("Could not load: " .. err, 1, 0.5, 0.3) return end
                 Say("Loaded \"" .. name .. "\".", 0.4, 1, 0.4)
                 if opts.onChange then opts.onChange() end
@@ -924,6 +991,7 @@ function Page:Profiles(opts)
                 opts.store()[name] = nil
                 Say("Deleted \"" .. name .. "\".")
                 Update()
+                if opts.onStoreChange then opts.onStoreChange() end
             end)
             r:Show()
         end

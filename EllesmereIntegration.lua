@@ -161,13 +161,17 @@ end
 
 if not (EUI and EUI.RegisterPlugin) then return end
 
-local MODULES = { buff = "BuffBars", cd = "CooldownBar", remind = "Reminders" }
+local MODULES = { buff = "BuffBars", cd = "CooldownBar", remind = "Reminders", profiles = "Profiles" }
 local function Rebuild(tracker, refresh)
     local key = EUI.GetPluginModuleKey(PLUGIN, MODULES[tracker or "buff"])
     EUI:InvalidateModulePageCache(key)
     if refresh ~= false and EUI:GetActiveModule() == key then EUI:RefreshPage(true) end
 end
 ns.RefreshBuffSettings = Rebuild
+function ns.RefreshProfileSettings(refresh)
+    ns.UpdateProfileHeader()
+    Rebuild("profiles", refresh)
+end
 function ns.RefreshTrackerSettings(changes, options)
     for _, tracker in ipairs({ "buff", "cd", "remind" }) do
         if not changes or changes[tracker] then
@@ -587,6 +591,7 @@ end
 
 local function Header(tracker)
     return function(frame,width)
+        if frame.euictProfileHeader then frame.euictProfileHeader:Hide() end
         frame.euictPreviews=frame.euictPreviews or {}
         local preview = tracker=="cd" and ns.PreviewCd or (tracker=="remind" and ns.PreviewRemind or ns.PreviewBuff)
         local mode = tracker=="remind" and "normal" or "combat"
@@ -626,14 +631,23 @@ local registered = EUI.RegisterPlugin(PLUGIN, {
         key="Reminders",title="Reminders",description="Missing buff reminders for you, your party and a friendly target. Saved with EUICT profiles.",
         pages={"Display","Appearance","Your Buffs","Ally Buffs","Class Blessings"},buildPage=BuildRemindersPage,
         getHeaderBuilder=function() return headers.remind end,searchPrebuild=false,
+    }, {
+        key="Profiles",title="Manage Profiles",description="Save, load, rename and delete account profiles, or import and export your setups.",
+        pages={"Profiles", "Import / Export"},buildPage=ns.BuildProfilePage,searchPrebuild=false,
+        getHeaderBuilder=function() return ns.BuildProfileHeader end,
+        onModuleLeave=ns.CloseProfileUI,
     } },
 })
 if registered then
     function ns.OpenTrackerSettings(tracker) return EUI.OpenPlugin(PLUGIN, MODULES[tracker], "Display") end
     function ns.OpenBuffSettings() return ns.OpenTrackerSettings("buff") end
+    function ns.OpenProfileSettings(tab)
+        return EUI.OpenPlugin(PLUGIN, "Profiles", type(tab) == "string" and tab or "Profiles")
+    end
     ns.settingsPages.buff:Button("Ellesmere UI", "Open Buff Bars", ns.OpenBuffSettings)
     ns.settingsPages.cd:Button("Ellesmere UI","Open Cooldown Bar",function() ns.OpenTrackerSettings("cd") end)
     ns.settingsPages.remind:Button("Ellesmere UI","Open Reminders",function() ns.OpenTrackerSettings("remind") end)
+    ns.settingsPages.profiles:Button("Ellesmere UI", "Open Manage Profiles", ns.OpenProfileSettings)
 end
 
 -- Unlock Mode edits the whole tracker's dimensions; translate them to bar/icon settings.

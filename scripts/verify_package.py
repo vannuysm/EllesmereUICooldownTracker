@@ -25,11 +25,11 @@ def verify_package(release_directory: Path) -> None:
         for file in package.rglob("*") if file.is_file()
     }
     archives = list(release_directory.glob("*.zip"))
-    assert archives, "Packager did not create a zip"
+    assert archives, "Packager did not create a zip file"
     for archive in archives:
         with ZipFile(archive) as zipped:
             actual = {name for name in zipped.namelist() if not name.endswith("/")}
-            assert actual == expected, f"Unexpected zip layout: {archive}"
+            assert actual == expected, f"Unexpected zip file layout: {archive}"
 
 
 def main() -> None:
@@ -40,7 +40,7 @@ def main() -> None:
     )
     args = parser.parse_args()
     verify_package(args.release_dir)
-    print("Packaged addon layout and zip contents verified.")
+    print("Packaged addon layout and zip file contents verified.")
 
 
 if __name__ == "__main__":

@@ -146,7 +146,7 @@ JSON. These test jobs need no repository secrets or Git history.
 An additional packaging job checks out full history and runs the same pinned
 BigWigsMods Packager as release CI with uploads disabled. It validates TOC entries,
 the flattened addon directory and zip contents, and development-file exclusions,
-then uploads the zip for inspection. Packaging runs from the repository root;
+then uploads the zip file for inspection. Packaging runs from the repository root;
 the release workflow also stays there to read `.pkgmeta` and apply `move-folders`.
 The package checks live in [`scripts/verify_package.py`](../scripts/verify_package.py).
 Run `python scripts/verify_package.py` after packaging, or pass

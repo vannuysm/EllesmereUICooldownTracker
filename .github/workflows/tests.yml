@@ -26,7 +26,7 @@ jobs:
         uses: BigWigsMods/packager@e50a250f8705041e40f2fa1ddcb280a686d65aa0 # v2.6.1
         with:
           args: -d -p 1741704
-      - name: Verify installed layout and ZIP contents
+      - name: Verify installed layout and zip contents
         run: python scripts/verify_package.py
       - name: Upload addon package
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

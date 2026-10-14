@@ -1,4 +1,4 @@
-"""Verify the packaged addon layout and ZIP contents."""
+"""Verify the packaged addon layout and zip contents."""
 
 import argparse
 from pathlib import Path
@@ -25,22 +25,22 @@ def verify_package(release_directory: Path) -> None:
         for file in package.rglob("*") if file.is_file()
     }
     archives = list(release_directory.glob("*.zip"))
-    assert archives, "Packager did not create a ZIP"
+    assert archives, "Packager did not create a zip"
     for archive in archives:
         with ZipFile(archive) as zipped:
             actual = {name for name in zipped.namelist() if not name.endswith("/")}
-            assert actual == expected, f"Unexpected ZIP layout: {archive}"
+            assert actual == expected, f"Unexpected zip layout: {archive}"
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--release-dir", type=Path, default=ROOT / ".release",
-        help="Directory containing the packaged addon and ZIP files (default: .release)",
+        help="Directory containing the packaged addon and zip files (default: .release)",
     )
     args = parser.parse_args()
     verify_package(args.release_dir)
-    print("Packaged addon layout and ZIP contents verified.")
+    print("Packaged addon layout and zip contents verified.")
 
 
 if __name__ == "__main__":

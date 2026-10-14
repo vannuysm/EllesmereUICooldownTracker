@@ -180,9 +180,9 @@ executable with `--bash "C:\path\to\bash.exe"`. On macOS, use a current Bash rat
 than the system's Bash 3.2. Packager also reads `.env` as a Bash file, so keep its
 assignments compatible with Bash; `.env.example` provides a suitable format.
 
-The script runs Packager with `-d` (disable uploads) and `-z` (skip ZIP creation),
+The script runs Packager with `-d` (disable uploads) and `-z` (skip zip creation),
 then deploys the prepared `.release/local/EllesmereUICooldownTracker` directory.
-ZIP creation in CI wraps these same processed addon files. Local deployment does
+CI zip creation wraps these same processed addon files. Local deployment does
 not require `zip` or upload credentials. Package exclusions come from `.pkgmeta`.
 
 Deployment replaces the existing `Interface/AddOns/EllesmereUICooldownTracker`

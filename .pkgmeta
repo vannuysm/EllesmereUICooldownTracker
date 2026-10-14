@@ -1,6 +1,6 @@
 package-as: EllesmereUICooldownTracker
 
-# Sources include the package name; destinations are relative to the ZIP root.
+# Sources include the package name; destinations are relative to the zip root.
 move-folders:
     EllesmereUICooldownTracker/src: EllesmereUICooldownTracker
 

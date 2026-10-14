@@ -199,7 +199,7 @@ end
 -- Cooldown row --------------------------------------------------------------
 -- The game sends SPELL_UPDATE_COOLDOWN when a cooldown starts, not when it ends: an icon re-checks when its sweep
 -- runs out, and while any icon is grey a ticker re-checks too (in combat the timings are secret and there is no sweep).
-local UpdateCd, QueueCd
+local UpdateCd, QueueCd, AnchorCdButton
 local cdLayoutDirty, cdStateDirty = true, true
 local cdAppearanceDirty = true
 local cdWaiting = false
@@ -285,8 +285,11 @@ local function UpdateCdRange()
     if visible and not cdRoot:IsShown() then UpdateCd(); return end
     cdRoot:SetShown(visible)
     if not visible then cdStateDirty = true; return end
-    for _, b in ipairs(cdRoot.items) do
+    for i, b in ipairs(cdRoot.items) do
         if b:IsShown() then
+            -- A settings rebuild can leave a recorded anchor without drawable bounds.
+            -- Reapply it after the native layout has settled, as a manual reanchor does.
+            if not b:GetRect() then AnchorCdButton(b, cdRoot, DB.cd, i) end
             local brightness = DB.cd.rangeDim ~= false and b.spellID and OutOfRange(b.spellID, "target") and 0.35 or 1
             b.icon:SetVertexColor(brightness, brightness, brightness)
             SetCdGlow(b, InCombatLockdown() and b.ready)
@@ -327,12 +330,15 @@ local function SizeCdRoot(root, c, n)
     local length = math.max(1, n * c.size + (n - 1) * c.gap)
     if c.orientation == "vertical" then root:SetSize(c.size, length) else root:SetSize(length, c.size) end
 end
-local function PositionCdButton(b, root, c, i)
+function AnchorCdButton(b, root, c, i)
     local anchor = CD_ANCHORS[CdGrowth(c)]
     local offset = (i - 1) * (c.size + c.gap)
-    b:SetSize(c.size, c.size)
     b:ClearAllPoints()
     b:SetPoint(anchor[1], root, anchor[1], offset * anchor[2], offset * anchor[3])
+end
+local function PositionCdButton(b, root, c, i)
+    b:SetSize(c.size, c.size)
+    AnchorCdButton(b, root, c, i)
     if ns.ApplyCooldownAppearance then ns.ApplyCooldownAppearance(b) end
 end
 local function CdButton(i, root)
@@ -392,18 +398,17 @@ local function RenderCooldownLayout(entries)
     local c = DB.cd
     local sample = #entries == 0 and ns.euiUnlockMode and not InCombatLockdown()
     local n = sample and 1 or #entries
+    for i = n + 1, #cdRoot.items do ReleaseCd(cdRoot.items[i]) end
     SizeCdRoot(cdRoot, c, n)
     for i = 1, n do
         local entry, b = entries[i], CdButton(i)
-        PositionCdButton(b, cdRoot, c, i)
         b.spellID = entry and entry.spell and entry.spell.spellID or nil
         b.icon:SetTexture(entry and (entry.spell and entry.spell.iconID or entry.item.icon) or "Interface/Icons/INV_Misc_QuestionMark")
         b.cd:SetHideCountdownNumbers(not c.numbers)
-        if ns.ApplyCooldownAppearance then ns.ApplyCooldownAppearance(b) end
         if not entry then b.cd:Clear(); b.ready = false; b.icon:SetDesaturated(false) end
         b:Show()
+        PositionCdButton(b, cdRoot, c, i)
     end
-    for i = n + 1, #cdRoot.items do ReleaseCd(cdRoot.items[i]) end
     cdLayoutDirty, cdAppearanceDirty = false, false
 end
 local function RenderCooldownAppearance()
@@ -1620,7 +1625,8 @@ function ns.ApplyTrackerConfiguration(key, effects, options)
     if effects.data then
         if key == "cd" then
             cdResolutionDirty = true; wipe(previewCd)
-            for _, b in ipairs(cdRoot.items) do ReleaseCd(b) end
+            -- Rebind the visible pool in place; layout releases only surplus icons.
+            -- Clearing every icon here interrupts cooldowns that are still tracked.
         elseif key == "buff" then buffDataDirty = true; wipe(previewBuff); wipe(hiddenCasts)
         elseif key == "remind" then wipe(learnedEntries) end
     end

@@ -6,14 +6,17 @@ ignore:
     - .gitattributes
     - README.md
     - *.log
-    - /.github/
+    - .github
     - Logo.png
-    - /tests/
-    - /local/
-    - /pyproject.toml
-    - /uv.lock
-    - /.python-version
-    - /.venv/
-    - /.uv-cache/
-    - /.pytest_cache/
-    - /test-results/
+    - tests
+    - local
+    - pyproject.toml
+    - uv.lock
+    - .python-version
+    - .venv
+    - .uv-cache
+    - .pytest_cache
+    - test-results
+    - .env*
+    - .release
+    - scripts

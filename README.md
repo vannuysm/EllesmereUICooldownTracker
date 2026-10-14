@@ -87,6 +87,57 @@ The EllesmereUI sidebar label is **Cooldown Tracker**.
 
 The underlying addon also provides its standalone settings through `/euict` or `/ellesmerecooldowns` when EllesmereUI is unavailable.
 
+## Local packaging and deployment
+
+Run the deployment script with a WoW root or client directory:
+
+```powershell
+uv run --locked python scripts/deploy.py "C:\Program Files (x86)\World of Warcraft\_retail_"
+```
+
+Alternatively, copy `.env.example` to `.env`, set `WOW_PATH`, then run:
+
+```powershell
+uv run --locked python scripts/deploy.py
+```
+
+The command-line path takes priority over `.env`. The script reads `.env` from
+the repository, regardless of the working directory. Relative paths are resolved
+from the repository. It supports quoted paths, literal Windows backslashes, and
+comments.
+
+When passing the WoW root, the script selects `_retail_` by default. To deploy to
+another client, use `--client`, for example:
+
+```powershell
+uv run --locked python scripts/deploy.py "C:\Program Files (x86)\World of Warcraft" --client _classic_beta_
+```
+
+You can also use `python scripts/deploy.py` directly with Python 3.12 or newer.
+Local packaging uses [BigWigsMods Packager](https://github.com/BigWigsMods/packager),
+with the exact commit and arguments read from `.github/workflows/release.yml`.
+The script downloads and caches that revision's `release.sh` under `.release/tools/`
+on its first run. Packaging follows the same `.pkgmeta`, file processing, version
+substitutions, and changelog generation as CI. Tracked files include working tree
+edits; Packager excludes untracked files, so use `git add` for new addon files
+before deploying them.
+
+Install Bash 4.3 or newer, Git, awk, grep, sed, and curl. On Windows, install Git
+for Windows; its Git Bash is detected automatically. You can select another Bash
+executable with `--bash "C:\path\to\bash.exe"`. On macOS, use a current Bash rather
+than the system's Bash 3.2. Packager also reads `.env` as a Bash file, so keep its
+assignments compatible with Bash; `.env.example` provides a suitable format.
+
+The script runs Packager with `-d` (disable uploads) and `-z` (skip ZIP creation),
+then deploys the prepared `.release/local/EllesmereUICooldownTracker` directory.
+ZIP creation in CI wraps these same processed addon files. Local deployment does
+not require `zip` or upload credentials. Package exclusions come from `.pkgmeta`.
+
+Deployment replaces the existing `Interface/AddOns/EllesmereUICooldownTracker`
+directory only after packaging succeeds, removing stale addon files. Saved settings
+in `WTF` and other addons are preserved. Run `/reload` after deployment; a newly installed addon may require
+restarting the client and enabling it in the addon list.
+
 ## Development tests
 
 Use `uv run --locked pytest` to run the Python-managed Lua unit, regression, and

@@ -148,6 +148,9 @@ BigWigsMods Packager as release CI with uploads disabled. It validates TOC entri
 the flattened addon directory and ZIP contents, and development-file exclusions,
 then uploads the ZIP for inspection. Packaging runs from the repository root;
 the release workflow also stays there to read `.pkgmeta` and apply `move-folders`.
+The package checks live in [`scripts/verify_package.py`](../scripts/verify_package.py).
+Run `python scripts/verify_package.py` after packaging, or pass
+`--release-dir PATH` to check another directory containing the addon and ZIP files.
 
 The setup follows the official [uv GitHub Actions guidance](https://docs.astral.sh/uv/guides/integration/github/).
 Workflow files and lockfiles must be committed with the tests to activate PR

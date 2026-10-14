@@ -1,6 +1,7 @@
 -- Shared test boundary: all paths are resolved from the checkout provided by Python.
 return function(standalone)
     local function Path(relative) return TEST_REPO_ROOT .. "/" .. relative end
+    local function AddonPath(relative) return TEST_ADDON_ROOT .. "/" .. relative end
     local M = dofile(Path("tests/unit/support/wow_mocks.lua"))
     M.messages = {}
     print = function(...)
@@ -22,10 +23,10 @@ return function(standalone)
         end })
     end
     local ns = {}
-    for line in io.lines(Path("EllesmereUICooldownTracker.toc")) do
+    for line in io.lines(AddonPath("EllesmereUICooldownTracker.toc")) do
         if line:match("%.lua$") then
             local file = line:gsub("\r$", "")
-            assert(loadfile(Path(file)))("EllesmereUICooldownTracker", ns)
+            assert(loadfile(AddonPath(file)))("EllesmereUICooldownTracker", ns)
         end
     end
     M.Fire("ADDON_LOADED", "EllesmereUICooldownTracker")

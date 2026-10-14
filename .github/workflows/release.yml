@@ -17,6 +17,7 @@ jobs:
       - name: Package EllesmereUICooldownTracker
         uses: BigWigsMods/packager@e50a250f8705041e40f2fa1ddcb280a686d65aa0 # v2.6.1
         with:
+          # Run at the repository root; .pkgmeta moves src into the addon root.
           args: -p 1741704
         env:
           CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}

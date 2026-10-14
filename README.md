@@ -104,7 +104,7 @@ Adjust the spacing between reminder rows from the Reminders **Display** page, re
 
 ### Shared components
 
-`OrderedList` and `TrackingEditor` in [EllesmereIntegration.lua](EllesmereIntegration.lua) implement the shared list and add controls. Each page supplies its settings list, labels, and matching explanation. Reordering, adding, and removing entries refresh the appropriate tracker and its EllesmereUI page cache.
+`OrderedList` and `TrackingEditor` in [EllesmereIntegration.lua](src/EllesmereIntegration.lua) implement the shared list and add controls. Each page supplies its settings list, labels, and matching explanation. Reordering, adding, and removing entries refresh the appropriate tracker and its EllesmereUI page cache.
 
 ### A separate addon identity
 
@@ -116,13 +116,23 @@ The EllesmereUI sidebar label is **Cooldown Tracker**.
 
 ## Installation and use
 
-1. Copy the addon files into your WoW installation's `Interface/AddOns/EllesmereUICooldownTracker` folder, with `EllesmereUICooldownTracker.toc` directly inside it.
+1. Extract a packaged release into your WoW installation's `Interface/AddOns` folder. For a source checkout, copy the contents of `src` into `Interface/AddOns/EllesmereUICooldownTracker`, with `EllesmereUICooldownTracker.toc` directly inside it; also include `LICENSE` from the repository root.
 2. Enable **EllesmereUI** to use the integrated settings pages. **EllesmereUIActionBars** is optional and supplies the appearance and glow settings used by the integration.
 3. Run `/reload`, open EllesmereUI, and select **Cooldown Tracker** to manage the tracking lists.
 
 The underlying addon also provides its standalone settings through `/euict` or `/ellesmerecooldowns` when EllesmereUI is unavailable.
 
 ## Local packaging and deployment
+
+Addon Lua files and the TOC live in `src`; tests, development tools, and release
+configuration remain at the repository root. TOC entries stay relative to the TOC.
+The root `.pkgmeta` uses `package-as: EllesmereUICooldownTracker` and maps
+`EllesmereUICooldownTracker/src` to `EllesmereUICooldownTracker` with `move-folders`.
+Both [CurseForge](https://support.curseforge.com/support/solutions/articles/9000197952-preparing-the-packagemeta-file)
+and [BigWigsMods Packager](https://github.com/BigWigsMods/packager/wiki/Preparing-the-PackageMeta-File)
+require the package name in the move source. This flattens `src` in the release,
+keeping the TOC and Lua files directly inside the installed addon folder alongside
+`LICENSE`. Run packaging from the repository root so `.pkgmeta` is read.
 
 Run the deployment script with a WoW root or client directory:
 

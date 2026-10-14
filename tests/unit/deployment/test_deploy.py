@@ -16,11 +16,15 @@ UPSTREAM_FILTER = 'git -C "$topdir" ls-files --others --directory'
 def repository(tmp_path):
     root = tmp_path / "repository"
     root.mkdir()
-    (root / f"{deploy.ADDON}.toc").write_text("## Version: 1.0.0\nMain.lua\n", encoding="utf-8")
-    (root / "Main.lua").write_text("-- current addon\n", encoding="utf-8")
+    source = root / "src"
+    source.mkdir()
+    (source / f"{deploy.ADDON}.toc").write_text("## Version: 1.0.0\nMain.lua\n", encoding="utf-8")
+    (source / "Main.lua").write_text("-- current addon\n", encoding="utf-8")
+    (root / ".pkgmeta").write_text(
+        f"package-as: {deploy.ADDON}\nmove-folders:\n    {deploy.ADDON}/src: {deploy.ADDON}\n",
+        encoding="utf-8",
+    )
     (root / "LICENSE").write_text("license", encoding="utf-8")
-    (root / "Setup").mkdir()
-    (root / "Setup" / "setup.ps1").write_text("# setup", encoding="utf-8")
     (root / "tests").mkdir()
     (root / "tests" / "private.lua").write_text("-- test code", encoding="utf-8")
     (root / ".env").write_text('WOW_PATH="private path"', encoding="utf-8")
@@ -189,7 +193,7 @@ def test_failed_install_restores_previous_addon(repository, tmp_path, monkeypatc
 def test_deployment_cannot_replace_repository(repository, package):
     with pytest.raises(ValueError, match="Unsafe deployment destination"):
         deploy.deploy_package(package, repository, repository)
-    assert (repository / "Main.lua").exists()
+    assert (repository / "src" / "Main.lua").exists()
 
 
 def test_failed_restore_preserves_backup_for_manual_recovery(repository, tmp_path, monkeypatch, package):
@@ -259,7 +263,8 @@ def test_local_packager_preserves_upstream_and_processing_steps(tmp_path):
 def test_local_packager_filter_includes_untracked_sources_but_excludes_ignored_files(tmp_path):
     subprocess.run(["git", "init", "--quiet", str(tmp_path)], check=True)
     (tmp_path / ".gitignore").write_text("ignored/\n.env\n", encoding="utf-8")
-    (tmp_path / "Profiles.lua").write_text("-- new untracked module", encoding="utf-8")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "Profiles.lua").write_text("-- new untracked module", encoding="utf-8")
     (tmp_path / ".env").write_text("private", encoding="utf-8")
     (tmp_path / "ignored").mkdir()
     (tmp_path / "ignored" / "diagnostic.lua").write_text("-- excluded", encoding="utf-8")
@@ -268,7 +273,8 @@ def test_local_packager_filter_includes_untracked_sources_but_excludes_ignored_f
     ], text=True).splitlines()
     assert sorted(ignored) == [".env", "ignored/"]
     # The build treats this output as its ignore list, so the new module is copied.
-    assert "Profiles.lua" not in ignored
+    assert "src/" not in ignored
+    assert "src/Profiles.lua" not in ignored
 
 
 @pytest.mark.parametrize("source", ["# different filter", UPSTREAM_FILTER + "\n" + UPSTREAM_FILTER])

@@ -1,5 +1,9 @@
 package-as: EllesmereUICooldownTracker
 
+# Sources include the package name; destinations are relative to the ZIP root.
+move-folders:
+    EllesmereUICooldownTracker/src: EllesmereUICooldownTracker
+
 ignore:
     - .gitignore
     - .pkgmeta

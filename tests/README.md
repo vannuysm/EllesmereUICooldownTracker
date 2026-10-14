@@ -38,6 +38,9 @@ Automated tests are split between `unit` and `performance`. Manual testing docs
 live under `docs`, using the same feature categories as the automated tests.
 Shared Python fixture/bridge files remain at the test root. Feature directories
 keep test functions, Lua cases, and their fixtures together.
+The harness loads the TOC and its Lua entries from the repository's `src` directory;
+test helpers and fixtures are resolved from the repository root. Codec performance
+tests also load their modules from `src`.
 
 ```text
 tests/
@@ -137,9 +140,14 @@ also counts the scalar leaf. Ordinary codec round trips remain regression-tested
 [`.github/workflows/tests.yml`](../.github/workflows/tests.yml) runs on pull requests,
 pushes to `main`, and manual dispatch. Unit/regression jobs cover Windows and
 Ubuntu using Python 3.14. A separate Ubuntu/Python 3.14 job runs performance
-budgets and records measurements. Every job tests both Lua runtimes, installs with
+budgets and records measurements. Each test job tests both Lua runtimes, installs with
 `uv sync --locked`, and uploads JUnit results; the performance job also uploads
-JSON. The workflow needs no repository secrets or Git history.
+JSON. These test jobs need no repository secrets or Git history.
+An additional packaging job checks out full history and runs the same pinned
+BigWigsMods Packager as release CI with uploads disabled. It validates TOC entries,
+the flattened addon directory and ZIP contents, and development-file exclusions,
+then uploads the ZIP for inspection. Packaging runs from the repository root;
+the release workflow also stays there to read `.pkgmeta` and apply `move-folders`.
 
 The setup follows the official [uv GitHub Actions guidance](https://docs.astral.sh/uv/guides/integration/github/).
 Workflow files and lockfiles must be committed with the tests to activate PR

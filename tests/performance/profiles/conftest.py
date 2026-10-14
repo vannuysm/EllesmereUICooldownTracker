@@ -3,7 +3,7 @@ import importlib
 
 import pytest
 
-from tests.lua_runtime import ROOT
+from tests.lua_runtime import SRC
 
 
 @pytest.fixture
@@ -19,7 +19,7 @@ def codec_runtime(lua_runtime_name):
         "function(source, name, ns) assert(loadstring(source, '@' .. name))('CodecTests', ns) end"
     )
     for file in ("ProfileValidation.lua", "ProfileCodec.lua"):
-        loader((ROOT / file).read_text(encoding="utf-8"), file, ns)
+        loader((SRC / file).read_text(encoding="utf-8"), file, ns)
     measure = lua.eval("""function(operation, value, repeats)
         collectgarbage('collect')
         collectgarbage('stop')

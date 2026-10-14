@@ -5,6 +5,7 @@ import importlib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
 RUNTIMES = ("lua51", "luajit21")
 
 
@@ -19,6 +20,7 @@ class LuaHarness:
             unpack_returned_tuples=True
         )
         lua.globals().TEST_REPO_ROOT = ROOT.as_posix()
+        lua.globals().TEST_ADDON_ROOT = SRC.as_posix()
         bootstrap = lua.execute(
             (ROOT / "tests/unit/support/bootstrap.lua").read_text(encoding="utf-8")
         )

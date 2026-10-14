@@ -355,7 +355,7 @@ end
 
 -- Saved data ---------------------------------------------------------------------------
 -- The Forever beta can fail to load SavedVariables when the game starts. A copy of the data may then come
--- from the account file, the per-character file, or the !ForeverData folder made by Setup/ (which loads the
+-- from the account file, the per-character file, or an existing !ForeverData folder (which loads the
 -- same files as plain addon files). Every copy is stamped when the game writes it at logout; the newest wins.
 -- Returns the newest non-empty table among the candidates, ignoring own (the addon's live table).
 function Kit.PickSaved(own, ...)
@@ -392,8 +392,7 @@ function Page:SaveStatus()
                 .. "even while the Forever beta fails to load them itself."
         end
         return "|cffffd100Not protected.|r The Forever beta currently forgets addon settings when the game restarts. "
-            .. "To keep them, install Forever Data Protect, close the game and run the setup in this addon's Setup folder once "
-            .. "(on Windows right-click ForeverData-setup.ps1 and choose Run with PowerShell; on Linux and macOS run ForeverData-setup.sh)."
+            .. "To keep them, install and configure Forever Data Protect using its installation instructions."
     end, "GameFontHighlightSmall")
 end
 

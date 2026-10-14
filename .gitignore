@@ -1,6 +1,10 @@
 # Local runtime diagnostics
 debug.log
 local/
+.env
+.env*
+!.env.example
+.release/
 
 # Python test tooling and generated reports
 .venv/

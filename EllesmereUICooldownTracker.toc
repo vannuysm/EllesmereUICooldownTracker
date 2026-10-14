@@ -18,4 +18,6 @@ Ranks.lua
 Configuration.lua
 Collection.lua
 EllesmereUICooldownTracker.lua
+Profiles.lua
+ProfileUI.lua
 EllesmereIntegration.lua

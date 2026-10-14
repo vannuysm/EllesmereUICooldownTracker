@@ -79,6 +79,7 @@ local function InitDB()
     acct.chars = acct.chars or {}
     acct.profiles = acct.profiles or {}
     acct.icons = acct.icons or {}
+    acct.profileAssignments = acct.profileAssignments or {}
     ACCOUNT = acct
     -- this character's own copies: its file (if it's really its own) and its entry in the account file
     local file, mine = EUICT_DBC, nil
@@ -103,6 +104,8 @@ local function InitDB()
         end
     end
     if src and src ~= DB then Mixin(DB, src) end
+    -- Account profile assignments also reconcile renames/deletions while this character was offline.
+    if key and acct.profileAssignments[key] ~= nil then DB._activeProfile = acct.profileAssignments[key] or nil end
     DB.profiles, DB.icons, DB._owner = nil, nil, key or DB._owner
     EUICT_DB, EUICT_DBC = acct, DB
     if key then acct.chars[key] = DB end
@@ -137,6 +140,10 @@ local function InitDB()
     local r = DB.remind
     for class, blessing in pairs(ns.CLASS_BLESSING) do
         if r.byClass[class] == nil then r.byClass[class] = blessing end
+    end
+    if ns.Profiles then
+        local _, err = ns.Profiles.RestoreActive()
+        if err then print("EllesmereUICooldownTracker: Could not restore the active profile: " .. err) end
     end
 end
 
@@ -1092,7 +1099,7 @@ ev:SetScript("OnEvent", function(_, event, eventArg, info, ...)
         do
             InitDB()
             State.InvalidateSpells(); State.InvalidateBags(); State.InvalidateAuras()
-            ns.Configuration.Apply({ cd = { all = true }, buff = { all = true }, remind = { all = true }, ranks = { all = true } })
+            ns.Configuration.Apply({ cd = { all = true }, buff = { all = true }, remind = { all = true }, ranks = { all = true } }, { initialization = true })
         end
     elseif event == "UNIT_AURA" then
         State.InvalidateAuras("player")
@@ -1571,19 +1578,35 @@ rankPage:Icons(List("ranks", "keep"), { title = "Keep on their rank", sources = 
 function ns.SnapshotProfile()
     return ns.ProfileValidation.Snapshot(DB, PlayerClass())
 end
-function ns.ApplyProfile(data)
+function ns.ApplyProfile(data, profileName)
     local candidate, err = ns.ProfileValidation.Validate(data)
     if not candidate then return nil, err end
     local changes = ns.Configuration.Changes(DB, candidate)
     changes.ranks = { all = true } -- profiles also reconcile markers on action buttons created since the last check
     ns.ProfileValidation.Commit(DB, candidate)
+    ns.AssignActiveProfile(profileName)
     State.InvalidateSpells(); State.InvalidateBags(); State.InvalidateAuras()
     ns.Configuration.Apply(changes, { profile = true })
     return true
 end
 -- Keep the original profile format for explicit imports; saved variables remain separate.
+function ns.ProfileStore() return ACCOUNT.profiles end
+function ns.ProfileCharacter() return DB end
+function ns.ProfileCharacters() return ACCOUNT.chars end
+function ns.ProfileAssignments() return ACCOUNT.profileAssignments end
+function ns.AssignActiveProfile(name)
+    DB._activeProfile = name
+    local key = CharKey()
+    if key then ACCOUNT.profileAssignments[key] = name or false end
+end
+function ns.ProfileLibraryChanged(refresh)
+    if profilePage.frame:IsShown() then profilePage:Refresh() end
+    if ns.RefreshProfileSettings then ns.RefreshProfileSettings(refresh) end
+end
 profilePage:Profiles({ tag = "FCT1", store = function() return ACCOUNT.profiles end, snapshot = ns.SnapshotProfile, apply = ns.ApplyProfile,
     decode = ns.DecodeProfile,
+    onStoreChange = ns.ProfileLibraryChanged,
+    onSave = function(name) ns.Profiles.Associate(name) end,
     badge = function(data)
         local class = type(data) == "table" and data._class
         if not ns.ProfileValidation.IsClass(class) then return nil end
@@ -1648,13 +1671,14 @@ function ns.RefreshConfigurationPages(changes, options)
     if ns.RefreshTrackerSettings then
         if options.profile then ns.RefreshTrackerSettings() else ns.RefreshTrackerSettings(changes, options) end
     end
+    if ns.RefreshProfileSettings then ns.RefreshProfileSettings() end
 end
 function ns.RefreshTrackers()
-    ns.Configuration.Apply({ cd = { all = true }, buff = { all = true }, remind = { all = true } })
+    ns.Configuration.Apply({ cd = { all = true }, buff = { all = true }, remind = { all = true } }, { refresh = true })
 end
 function ns.BuffConfig() return DB.buff end
 function ns.BuffRoot() return buffRoot end
-function ns.RefreshBuffs() ns.ConfigChanged("buff", "all") end
+function ns.RefreshBuffs() ns.ConfigChanged("buff", "all", { refresh = true }) end
 ns.PreviewBuff = PreviewBuff
 ns.PreviewCd = PreviewCd
 ns.PreviewRemind = PreviewRemind
@@ -1676,6 +1700,8 @@ SlashCmdList.EUICT = function(msg)
     elseif cmd == "barwidth" and tonumber(arg) then SlashSetting("buff", "width", arg)
     elseif cmd == "barheight" and tonumber(arg) then SlashSetting("buff", "height", arg)
     elseif cmd == "buff" and ns.OpenBuffSettings then ns.OpenBuffSettings()
+    elseif cmd == "profiles" then
+        if ns.OpenProfileSettings then ns.OpenProfileSettings() else Kit.Open(profilePage) end
     elseif (cmd == "cd" or cmd == "remind" or cmd == "reminders") and ns.OpenTrackerSettings then
         ns.OpenTrackerSettings(cmd == "cd" and "cd" or "remind")
     else ToggleConfig() end

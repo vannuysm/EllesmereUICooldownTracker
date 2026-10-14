@@ -51,6 +51,9 @@ local schema = {
     ranks = { enabled = Bool(true), auto = Bool(false), keep = List() },
 }
 
+function V.IsConfigSection(section) return schema[section] ~= nil end
+function V.IsConfigField(section, field) return schema[section] ~= nil and schema[section][field] ~= nil end
+
 local function Copy(value)
     if type(value) ~= "table" then return value end
     local out = {}

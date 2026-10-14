@@ -100,6 +100,37 @@ def find_bash(explicit: str | None = None) -> str:
     return executable
 
 
+def validate_package(package: Path) -> None:
+    """Reject incomplete packages before replacing the installed addon."""
+    toc = package / f"{ADDON}.toc"
+    if not toc.is_file():
+        raise ValueError(f"Packager did not produce the expected addon: {package}")
+    for line in toc.read_text(encoding="utf-8-sig").splitlines():
+        entry = line.strip()
+        if not entry or entry.startswith("#"):
+            continue
+        source = package / entry.replace("\\", "/")
+        if not source.resolve().is_relative_to(package.resolve()):
+            raise ValueError(f"Unsafe file path in packaged TOC: {entry}")
+        if not source.is_file():
+            raise ValueError(
+                f"Package is missing TOC file {entry}. "
+                "Check that the source exists and is not excluded by .gitignore or .pkgmeta."
+            )
+
+
+def local_packager_script(upstream: Path) -> Path:
+    """Include untracked sources for local builds, retaining Git and pkgmeta exclusions."""
+    source = upstream.read_text(encoding="utf-8")
+    original = 'git -C "$topdir" ls-files --others --directory'
+    replacement = 'git -C "$topdir" ls-files --others --ignored --exclude-standard --directory'
+    if source.count(original) != 1:
+        raise ValueError("Pinned Packager's untracked-file filter changed; review the local build adaptation.")
+    script = upstream.with_name("release-local.sh")
+    script.write_text(source.replace(original, replacement), encoding="utf-8", newline="\n")
+    return script
+
+
 def build_package(root: Path, bash: str | None = None) -> Path:
     revision, arguments = packager_configuration(root)
     executable = find_bash(bash)
@@ -112,6 +143,7 @@ def build_package(root: Path, bash: str | None = None) -> Path:
         with urlopen(url, timeout=30) as response:
             contents = response.read()
         script.write_bytes(contents)
+    script = local_packager_script(script)
     output = release / "local"
     if not output.resolve().is_relative_to(root.resolve()):
         raise ValueError(f"Unsafe package output directory: {output}")
@@ -131,12 +163,12 @@ def build_package(root: Path, bash: str | None = None) -> Path:
     environment["GIT_CONFIG_COUNT"] = str(config_count + 1)
     subprocess.run(command, cwd=root, check=True, env=environment)
     package = output / ADDON
-    if not (package / f"{ADDON}.toc").is_file():
-        raise ValueError(f"Packager did not produce the expected addon: {package}")
+    validate_package(package)
     return package
 
 
 def deploy_package(package: Path, client: Path, root: Path) -> Path:
+    validate_package(package)
     addons = client / "Interface" / "AddOns"
     target = addons / ADDON
     # Resolve before any replacement/deletion so a junction cannot redirect cleanup.

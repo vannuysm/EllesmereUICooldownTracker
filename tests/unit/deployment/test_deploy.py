@@ -9,6 +9,7 @@ from scripts import deploy
 
 
 REVISION = "e50a250f8705041e40f2fa1ddcb280a686d65aa0"
+UPSTREAM_FILTER = 'git -C "$topdir" ls-files --others --directory'
 
 
 @pytest.fixture
@@ -135,6 +136,37 @@ def test_packager_failure_preserves_installed_addon(repository, tmp_path, monkey
     assert (target / "previous.lua").read_text(encoding="utf-8") == "previous"
 
 
+def test_incomplete_package_preserves_installed_addon(repository, tmp_path, monkeypatch, stub_packager, package, capsys):
+    monkeypatch.setattr(deploy, "ROOT", repository)
+    client = tmp_path / "client"
+    target = client / "Interface" / "AddOns" / deploy.ADDON
+    target.mkdir(parents=True)
+    (target / "previous.lua").write_text("previous", encoding="utf-8")
+    toc = package / f"{deploy.ADDON}.toc"
+    toc.write_text(toc.read_text(encoding="utf-8") + "Profiles.lua\n", encoding="utf-8")
+
+    assert deploy.main([str(client)]) == 1
+    assert "Package is missing TOC file Profiles.lua" in capsys.readouterr().err
+    assert (target / "previous.lua").read_text(encoding="utf-8") == "previous"
+    assert not (target / "Main.lua").exists()
+
+
+def test_package_validation_accepts_nested_files_and_comments(package):
+    nested = package / "Modules" / "Nested.lua"
+    nested.parent.mkdir()
+    nested.write_text("-- runtime module", encoding="utf-8")
+    toc = package / f"{deploy.ADDON}.toc"
+    toc.write_text(toc.read_text(encoding="utf-8") + "\n# comment\nModules\\Nested.lua\n", encoding="utf-8-sig")
+    deploy.validate_package(package)
+
+
+def test_package_validation_rejects_paths_outside_addon(package):
+    toc = package / f"{deploy.ADDON}.toc"
+    toc.write_text("../outside.lua\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="Unsafe file path"):
+        deploy.validate_package(package)
+
+
 def test_failed_install_restores_previous_addon(repository, tmp_path, monkeypatch, package):
     client = tmp_path / "client"
     target = client / "Interface" / "AddOns" / deploy.ADDON
@@ -186,7 +218,7 @@ def test_build_uses_ci_revision_args_and_packager_output(repository, monkeypatch
     monkeypatch.setenv("GIT_CONFIG_VALUE_0", "false")
     script = repository / ".release" / "tools" / REVISION / "release.sh"
     script.parent.mkdir(parents=True)
-    script.write_text("# cached upstream script", encoding="utf-8")
+    script.write_text(UPSTREAM_FILTER + "\n", encoding="utf-8")
     monkeypatch.setattr(deploy, "find_bash", lambda explicit: "bash")
     calls = []
 
@@ -202,7 +234,7 @@ def test_build_uses_ci_revision_args_and_packager_output(repository, monkeypatch
     assert len(calls) == 1
     command, options = calls[0]
     assert command == [
-        "bash", f".release/tools/{REVISION}/release.sh", "-p", "1741704",
+        "bash", f".release/tools/{REVISION}/release-local.sh", "-p", "1741704",
         "-d", "-z", "-t", ".", "-r", "./.release/local",
     ]
     assert options["cwd"] == repository
@@ -211,6 +243,41 @@ def test_build_uses_ci_revision_args_and_packager_output(repository, monkeypatch
     assert options["env"]["GIT_CONFIG_KEY_0"] == "color.ui"
     assert options["env"]["GIT_CONFIG_KEY_1"] == "log.showSignature"
     assert options["env"]["GIT_CONFIG_VALUE_1"] == "false"
+
+
+def test_local_packager_preserves_upstream_and_processing_steps(tmp_path):
+    upstream = tmp_path / "release.sh"
+    contents = "# pinned script\n" + UPSTREAM_FILTER + "\n# keyword processing\n"
+    upstream.write_text(contents, encoding="utf-8")
+    local = deploy.local_packager_script(upstream)
+    assert upstream.read_text(encoding="utf-8") == contents
+    assert local.read_text(encoding="utf-8") == contents.replace(
+        UPSTREAM_FILTER, 'git -C "$topdir" ls-files --others --ignored --exclude-standard --directory',
+    )
+
+
+def test_local_packager_filter_includes_untracked_sources_but_excludes_ignored_files(tmp_path):
+    subprocess.run(["git", "init", "--quiet", str(tmp_path)], check=True)
+    (tmp_path / ".gitignore").write_text("ignored/\n.env\n", encoding="utf-8")
+    (tmp_path / "Profiles.lua").write_text("-- new untracked module", encoding="utf-8")
+    (tmp_path / ".env").write_text("private", encoding="utf-8")
+    (tmp_path / "ignored").mkdir()
+    (tmp_path / "ignored" / "diagnostic.lua").write_text("-- excluded", encoding="utf-8")
+    ignored = subprocess.check_output([
+        "git", "-C", str(tmp_path), "ls-files", "--others", "--ignored", "--exclude-standard", "--directory",
+    ], text=True).splitlines()
+    assert sorted(ignored) == [".env", "ignored/"]
+    # The build treats this output as its ignore list, so the new module is copied.
+    assert "Profiles.lua" not in ignored
+
+
+@pytest.mark.parametrize("source", ["# different filter", UPSTREAM_FILTER + "\n" + UPSTREAM_FILTER])
+def test_local_packager_rejects_changed_upstream_filter(tmp_path, source):
+    upstream = tmp_path / "release.sh"
+    upstream.write_text(source, encoding="utf-8")
+    with pytest.raises(ValueError, match="filter changed"):
+        deploy.local_packager_script(upstream)
+    assert not (tmp_path / "release-local.sh").exists()
 
 
 def test_packager_pin_tracks_release_workflow_changes(repository):
@@ -229,7 +296,7 @@ def test_downloads_ci_pinned_script_only_when_uncached(repository, monkeypatch):
 
     def download(url, timeout):
         downloads.append(url)
-        return io.BytesIO(b"# upstream Packager\n")
+        return io.BytesIO((UPSTREAM_FILTER + "\n").encode("utf-8"))
 
     monkeypatch.setattr(deploy, "urlopen", download)
     monkeypatch.setattr(deploy, "find_bash", lambda explicit: "bash")

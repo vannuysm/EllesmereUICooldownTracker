@@ -6,6 +6,7 @@ local spells, bags, matches, auras
 spells, matches, auras = {}, {}, {}
 
 function S.Readable(value, kind)
+    -- Secret values report their underlying type; a type check alone is insufficient for Lua operations.
     return type(value) == kind and not (issecretvalue and issecretvalue(value))
 end
 local Plain = S.Readable
@@ -175,4 +176,45 @@ function S.Cooldowns(entries, kind, ids)
             entry.updated = false
         end
     end
+end
+
+local knownSpells, knownRevision = {}, -1
+local function QueryKnownSpell(spellID)
+    if C_SpellBook and C_SpellBook.IsSpellKnown then
+        local ok, known = pcall(C_SpellBook.IsSpellKnown, spellID)
+        if ok and type(known) == "boolean" and not (issecretvalue and issecretvalue(known)) then
+            if known then return true end
+            -- your pet's abilities are in the pet spellbook
+            local pet = Enum and Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Pet
+            local okP, petKnown = pcall(C_SpellBook.IsSpellKnown, spellID, pet)
+            return pet ~= nil and okP and Plain(petKnown, "boolean") and petKnown
+        end
+    end
+    if IsPlayerSpell then
+        local ok, known = pcall(IsPlayerSpell, spellID)
+        return ok and Plain(known, "boolean") and known
+    end
+    return true
+end
+function S.KnownSpell(spellID)
+    if knownRevision ~= S.spellRevision then wipe(knownSpells); knownRevision = S.spellRevision end
+    if knownSpells[spellID] == nil then knownSpells[spellID] = QueryKnownSpell(spellID) == true end
+    return knownSpells[spellID]
+end
+
+-- Procs fire UNIT_SPELLCAST_SUCCEEDED too, often under the seal's own name (Seal of Command's melee hit).
+-- Only spells the player can actually cast count as a recast.
+function S.IsOwnSpell(spellID)
+    if C_SpellBook and C_SpellBook.IsSpellKnown then
+        local ok, known = pcall(C_SpellBook.IsSpellKnown, spellID)
+        if ok and Plain(known, "boolean") then return known end
+    end
+    local ok, known = pcall(IsPlayerSpell, spellID)
+    return ok and Plain(known, "boolean") and known
+end
+
+-- Only a definite out-of-range result dims an icon; no target, no range, or secret results leave it unchanged.
+function S.OutOfRange(spellID, unit)
+    local ok, inRange = pcall(C_Spell.IsSpellInRange, spellID, unit)
+    return ok and Plain(inRange, "boolean") and not inRange
 end

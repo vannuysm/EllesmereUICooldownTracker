@@ -160,8 +160,30 @@ function P.Export(name, current)
     return raw
 end
 
+-- Both profile editors use the same validated import and collision policy.
+-- opts supplies storage/decoding so the reusable Blizzard editor can retain its public API.
+function P.ImportInto(opts, raw, choice)
+    local candidate, err = opts.decode(raw)
+    if not candidate then return nil, err end
+    if choice ~= nil and choice ~= "overwrite" and choice ~= "keep" then return nil, "Invalid duplicate import choice." end
+    local store, name = opts.store(), candidate.name
+    if store[name] ~= nil then
+        if not choice then return nil, "A profile with this name already exists.", name end
+        if choice == "keep" then
+            local base, n = name, 2
+            repeat
+                local suffix = " " .. n
+                name = base:sub(1, ns.ProfileValidation.Limits.name - #suffix) .. suffix
+                n = n + 1
+            until store[name] == nil
+        end
+    end
+    store[name] = candidate.data
+    return name
+end
+
 function P.Import(raw, choice)
-    local name, err, duplicate = ns.Kit.ImportProfile({ store = ns.ProfileStore, decode = ns.DecodeProfile }, raw, choice)
+    local name, err, duplicate = P.ImportInto({ store = ns.ProfileStore, decode = ns.DecodeProfile }, raw, choice)
     if name then ns.ProfileLibraryChanged(false) end
     return name, err, duplicate
 end

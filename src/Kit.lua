@@ -1,5 +1,5 @@
--- Forever settings kit: builds Blizzard-style option pages in Options > AddOns.
--- The same file ships in every Forever addon. Change it in one repo, then copy it to the others.
+-- Settings kit: Blizzard page layout, basic controls and category registration.
+-- Companion Kit*.lua modules extend this table and its Page API through the TOC.
 local _, ns = ...
 local Kit = {}
 ns.Kit = Kit
@@ -153,6 +153,24 @@ function Page:Check(label, get, set, tooltip)
     return row
 end
 
+-- Row and card sliders share rounding and refresh suppression. Native SetValue may fire callbacks.
+function Kit.BindSlider(page, slider, minV, maxV, step, get, set, show)
+    local syncing = false
+    if slider.Init then
+        slider:Init(get() or minV, minV, maxV, math.floor((maxV - minV) / step + 0.5), {})
+        slider:RegisterCallback(MinimalSliderWithSteppersMixin.Event.OnValueChanged, function(_, v)
+            v = Round(v, step)
+            show(v)
+            if not syncing then set(v) end
+        end, slider)
+    end
+    page:OnRefresh(function()
+        local v = get() or minV
+        show(v)
+        if slider.SetValue then syncing = true; slider:SetValue(v); syncing = false end
+    end)
+end
+
 -- fmt: optional function(value) -> string for the value label.
 function Page:Slider(label, minV, maxV, step, get, set, fmt, tooltip)
     local row = self:Row(label, tooltip)
@@ -161,20 +179,8 @@ function Page:Slider(label, minV, maxV, step, get, set, fmt, tooltip)
     s:SetPoint("LEFT", CONTROL_X + 4, 0)
     local value = row:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
     value:SetPoint("LEFT", s, "RIGHT", 8, 0)
-    local function Show(v) value:SetText(fmt and fmt(v) or FormatNumber(v, step)) end
-    local syncing = false
-    if s.Init then
-        s:Init(get() or minV, minV, maxV, math.floor((maxV - minV) / step + 0.5), {})
-        s:RegisterCallback(MinimalSliderWithSteppersMixin.Event.OnValueChanged, function(_, v)
-            v = Round(v, step)
-            Show(v)
-            if not syncing then set(v) end
-        end, row)
-    end
-    self:OnRefresh(function()
-        local v = get() or minV
-        Show(v)
-        if s.SetValue then syncing = true; s:SetValue(v); syncing = false end
+    Kit.BindSlider(self, s, minV, maxV, step, get, set, function(v)
+        value:SetText(fmt and fmt(v) or FormatNumber(v, step))
     end)
     row.control = s
     return row
@@ -353,162 +359,6 @@ function Kit.Register(page, parent)
     return cat
 end
 
--- Saved data ---------------------------------------------------------------------------
--- The Forever beta can fail to load SavedVariables when the game starts. A copy of the data may then come
--- from the account file, the per-character file, or an existing !ForeverData folder (which loads the
--- same files as plain addon files). Every copy is stamped when the game writes it at logout; the newest wins.
--- Returns the newest non-empty table among the candidates, ignoring own (the addon's live table).
-function Kit.PickSaved(own, ...)
-    local best
-    for i = 1, select("#", ...) do
-        local t = select(i, ...)
-        if type(t) == "table" and t ~= own and next(t) ~= nil
-            and (not best or (tonumber(t._savedAt) or 0) > (tonumber(best._savedAt) or 0)) then
-            best = t
-        end
-    end
-    return best
-end
-
--- getter: returns the table to stamp (tables can be replaced during a session, so look them up at logout).
-local stamped = {}
-local stamper = CreateFrame("Frame")
-stamper:RegisterEvent("PLAYER_LOGOUT")   -- also fires on /reload, just before the game writes
-stamper:SetScript("OnEvent", function()
-    local now = time()
-    for _, get in ipairs(stamped) do
-        local t = get()
-        if type(t) == "table" then t._savedAt = now end
-    end
-end)
-function Kit.StampOnLogout(getter) stamped[#stamped + 1] = getter end
-
--- A settings-page line saying whether the startup fallback is in place.
-function Page:SaveStatus()
-    self:Section("Saved settings")
-    self:Text(function()
-        if ForeverData and ForeverData.active then
-            return "|cff60ff60Protected.|r Forever Data Protect loads settings from disk, so they survive a restart "
-                .. "even while the Forever beta fails to load them itself."
-        end
-        return "|cffffd100Not protected.|r The Forever beta currently forgets addon settings when the game restarts. "
-            .. "To keep them, install and configure Forever Data Protect using its installation instructions."
-    end, "GameFontHighlightSmall")
-end
-
--- Edit Mode ------------------------------------------------------------------------------
--- Addon frames can't join Blizzard's Edit Mode itself (that code is protected), so while Edit Mode is open each
--- registered frame gets an overlay in Edit Mode's colours: blue box and name, brighter on hover. Drag it like a
--- Blizzard frame. Positions are also remembered per Edit Mode layout, so switching layouts moves ours too.
---
--- Kit.EditMode{ frame, label, key, db, get = fn() -> x, y, set = fn(x, y), onToggle = fn(active) }
---   Dragging reuses the frame's own OnDragStop (which saves its position); get/set read and write that saved
---   position for the per-layout copies, set must also re-place the frame. onToggle shows placeholders while open.
-local editItems = {}
-local editOpen = false
-Kit.editMode = false
-
-local function LayoutKey()
-    if not (C_EditMode and C_EditMode.GetLayouts) then return end
-    local ok, info = pcall(C_EditMode.GetLayouts)
-    if ok and type(info) == "table" and info.activeLayout then return "layout" .. info.activeLayout end
-end
-
-local function SaveForLayout(def)
-    local lk = LayoutKey()
-    if not (lk and def.db and def.get) then return end
-    def.db.editLayouts = def.db.editLayouts or {}
-    def.db.editLayouts[lk] = def.db.editLayouts[lk] or {}
-    local x, y = def.get()
-    def.db.editLayouts[lk][def.key] = { x, y }
-end
-
--- Moving a tracker outside Blizzard Edit Mode must update its active layout too;
--- otherwise ApplyLayout restores an older position after /reload or entering the world.
-function Kit.SaveEditModePosition(key)
-    for _, def in ipairs(editItems) do
-        if def.key == key then SaveForLayout(def); return end
-    end
-end
-
-local function ApplyLayout()
-    local lk = LayoutKey()
-    if not lk then return end
-    for _, def in ipairs(editItems) do
-        local saved = def.db and def.db.editLayouts and def.db.editLayouts[lk] and def.db.editLayouts[lk][def.key]
-        if saved and def.set then def.set(saved[1], saved[2]) end
-    end
-end
-
-local function Overlay(def)
-    local f = def.frame
-    local o = CreateFrame("Button", nil, f)
-    o:SetPoint("TOPLEFT", -4, 4)
-    o:SetPoint("BOTTOMRIGHT", 4, -4)
-    o:SetFrameStrata("DIALOG")
-    o:Hide()
-    o.fill = o:CreateTexture(nil, "BACKGROUND")
-    o.fill:SetAllPoints()
-    o.edges = {}
-    for i, side in ipairs({ { "TOPLEFT", "TOPRIGHT", 0, 2 }, { "BOTTOMLEFT", "BOTTOMRIGHT", 0, 2 }, { "TOPLEFT", "BOTTOMLEFT", 2, 0 }, { "TOPRIGHT", "BOTTOMRIGHT", 2, 0 } }) do
-        local t = o:CreateTexture(nil, "BORDER")
-        t:SetPoint(side[1]); t:SetPoint(side[2])
-        if side[3] > 0 then t:SetWidth(side[3]) else t:SetHeight(side[4]) end
-        o.edges[i] = t
-    end
-    o.label = o:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    o.label:SetPoint("CENTER")
-    o.label:SetText(def.label)
-    local function Tint(hover)
-        o.fill:SetColorTexture(0.25, 0.55, 1, hover and 0.35 or 0.22)
-        for _, t in ipairs(o.edges) do t:SetColorTexture(0.35, 0.7, 1, hover and 1 or 0.8) end
-    end
-    Tint(false)
-    o:SetScript("OnEnter", function() Tint(true) end)
-    o:SetScript("OnLeave", function() Tint(false) end)
-    o:RegisterForDrag("LeftButton")
-    o:SetScript("OnDragStart", function()
-        f:SetMovable(true)
-        f:StartMoving()
-    end)
-    o:SetScript("OnDragStop", function()
-        local stop = f:GetScript("OnDragStop")
-        if stop then stop(f) else f:StopMovingOrSizing() end   -- the frame's own handler saves its position
-        SaveForLayout(def)
-    end)
-    return o
-end
-
-local function SetEditMode(active)
-    Kit.editMode = active
-    for _, def in ipairs(editItems) do
-        if def.onToggle then def.onToggle(active) end
-        local show = active and (not def.enabled or def.enabled())
-        def.overlay:SetShown(show)
-        -- tiny or empty frames still get a box big enough to grab
-        if show then
-            local w, h = def.frame:GetSize()
-            if (w or 0) < 60 or (h or 0) < 20 then def.frame:SetSize(math.max(w or 0, 160), math.max(h or 0, 24)) end
-        end
-    end
-end
-
-function Kit.EditMode(def)
-    def.overlay = Overlay(def)
-    editItems[#editItems + 1] = def
-    if not editOpen then
-        editOpen = true
-        if EditModeManagerFrame then
-            EditModeManagerFrame:HookScript("OnShow", function() SetEditMode(true) end)
-            EditModeManagerFrame:HookScript("OnHide", function() SetEditMode(false) end)
-        end
-        local ev = CreateFrame("Frame")
-        pcall(ev.RegisterEvent, ev, "EDIT_MODE_LAYOUTS_UPDATED")
-        ev:RegisterEvent("PLAYER_ENTERING_WORLD")
-        ev:SetScript("OnEvent", function() C_Timer.After(0.5, ApplyLayout) end)
-    end
-    if Kit.editMode then SetEditMode(true) end
-end
 
 function Kit.Open(page)
     if not (page and page.category) then return end

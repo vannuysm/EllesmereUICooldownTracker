@@ -7,6 +7,11 @@ local data = { spells = true, self = true, ally = true, byClass = true }
 local layout = { size = true, width = true, height = true, gap = true, orientation = true, growth = true }
 local visibility = { enabled = true, locked = true, visibility = true, party = true, target = true, editing = true }
 
+function C.Growth(config)
+    if config.orientation == "vertical" then return config.growth == "up" and "up" or "down" end
+    return config.growth == "left" and "left" or "right"
+end
+
 function C.Effects(fields)
     local effects = {}
     for field in pairs(fields) do
@@ -66,8 +71,7 @@ function ns.SetConfig(section, field, value, options)
     cfg[field] = value
     local fields = { [field] = true }
     if field == "orientation" then
-        cfg.growth = value == "vertical" and (cfg.growth == "up" and "up" or "down")
-            or (cfg.growth == "left" and "left" or "right")
+        cfg.growth = C.Growth(cfg)
         fields.growth = true
     end
     C.Apply({ [section] = fields }, options)

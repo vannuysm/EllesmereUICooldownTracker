@@ -107,3 +107,73 @@ Test("Ellesmere continuous controls retain active widgets; structural changes re
     assert(M.pageRefreshes == before + 2 and EUICT_CD:GetWidth() == 48)
     SlashCmdList.EUICT("cdsize 999"); assert(EUICT_DBC.cd.size == 48)
 end)
+
+Test("late saved data reconciles without duplicating tracker roots or polling", function()
+    Prepare(); Spell("Restored", 1501)
+    local character = EUICT_DBC
+    local roots = { EUICT_CD, EUICT_Buff, EUICT_Remind }
+    local tickers, rankEvents = #M.tickers, #M.events.ACTIONBAR_SLOT_CHANGED
+    local restored = assert(ns.Kit.Decode(ns.Kit.Encode(character)))
+    restored._savedAt = 999999
+    restored.cd.spells, restored.cd.size = { "Restored" }, 53
+    EUICT_DBC = restored
+    M.Fire("ADDON_LOADED", "EllesmereUICooldownTracker")
+    assert(EUICT_DBC == character and EUICT_DB.chars[character._owner] == character)
+    assert(EUICT_CD == roots[1] and EUICT_Buff == roots[2] and EUICT_Remind == roots[3])
+    assert(#M.tickers == tickers and #M.events.ACTIONBAR_SLOT_CHANGED == rankEvents)
+    assert(EUICT_CD.items[1].spellID == 1501 and EUICT_CD:GetHeight() == 53)
+end)
+
+Test("row and card sliders round edits and refresh without writing settings", function()
+    local page, current, writes = ns.Kit.NewPage("Slider regression"), 20, 0
+    local function Get() return current end
+    local function Set(value) current = value; writes = writes + 1 end
+    local row = page:Slider("Row", 10, 80, 5, Get, Set)
+    local card = page:SliderAt(page.content, 0, 0, "Card", 10, 80, 5, Get, Set)
+    local event = MinimalSliderWithSteppersMixin.Event.OnValueChanged
+    for _, slider in ipairs({ row.control, card }) do
+        -- Native sliders may call the same listener for user edits and programmatic synchronization.
+        slider.SetValue = function(self, value) self.scripts[event](self, value) end
+        page:Refresh(); assert(writes == 0 and current == 20)
+        slider.scripts[event](slider, 23); assert(current == 25 and writes == 1)
+        current, writes = 35, 0
+        page:Refresh(); assert(current == 35 and writes == 0)
+        current = 20
+    end
+end)
+
+Test("buff and icon borders inherit Action Bar settings and return to custom settings", function()
+    Prepare(); Spell("Styled", 1601); M.auras.player = { Aura("Styled", 1601) }
+    ns.SetConfig("cd", "spells", { "Styled" })
+    ns.SetConfig("buff", "spells", { "Styled" })
+    ns.SetConfig("remind", "self", { "Styled" })
+    local applied = {}
+    EllesmereUI.ApplyBorderStyle = function(frame, size, r, g, b, a, texture, ...)
+        applied[frame] = { size, r, g, b, a, texture, ... }
+        frame:Show()
+    end
+    EllesmereUI.BorderPx = function(pixels) return pixels end
+    local source = { borderEnabled = true, borderThickness = "heavy", borderThicknessPx = 2.5,
+        borderColor = { r = 0.2, g = 0.3, b = 0.4, a = 0.8 }, borderTexture = "test-border" }
+    EllesmereUI.Lite = { GetAddon = function() return { db = { profile = { bars = { MainBar = source } } } } end }
+    local stage = CreateFrame("Frame"); stage.note = stage:CreateFontString()
+    ns.PreviewRemind(stage, "normal")
+    local widgets = { EUICT_CD.items[1], EUICT_Buff.items[1], stage.root.items[1] }
+    local stylers = { ns.ApplyCooldownAppearance, ns.ApplyBuffAppearance, ns.ApplyReminderAppearance }
+    for i, tracker in ipairs({ "cd", "buff", "remind" }) do
+        ns.SetConfig(tracker, "inheritBar", "MainBar")
+        stylers[i](widgets[i], false)
+        local border = widgets[i].buffBorder or widgets[i].euictIconBorder
+        local style = assert(applied[border])
+        assert(style[1] == 3 and style[2] == 0.2 and style[5] == 0.8 and style[6] == "test-border")
+        assert(style[14] == 2.5, "inherited pixel thickness reaches the border API")
+        source.borderEnabled = false
+        stylers[i](widgets[i], false); assert(not border:IsShown())
+        source.borderEnabled = true
+        ns.SetConfig(tracker, "borderEnabled", true)
+        ns.SetConfig(tracker, "borderSize", 4)
+        ns.SetConfig(tracker, "inheritBar", "none")
+        stylers[i](widgets[i], false)
+        assert(applied[border][1] == 4 and applied[border][6] == "solid")
+    end
+end)

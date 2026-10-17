@@ -6,8 +6,8 @@ local ErrorContains, Bad, BadText = H.ErrorContains, H.Bad, H.BadText
 
 Test("every explicit empty list survives normalization, application and late saved-data initialization", function()
     local empty = { cd = { spells = {} }, buff = { spells = {} }, remind = { self = {}, ally = {} }, ranks = { keep = {} } }
-    local decoded = assert(ns.DecodeProfile("FCT1:" .. Kit.Encode({ data = empty })))
-    assert(ns.ApplyProfile(decoded.data))
+    local decoded = assert(ns.ProfileCodec.Decode("FCT1:" .. Kit.Encode({ data = empty })))
+    assert(ns.Profiles.Apply(decoded.data))
     M.Fire("PLAYER_LOGIN")
     for _, pair in ipairs({ { "cd", "spells" }, { "buff", "spells" }, { "remind", "self" }, { "remind", "ally" }, { "ranks", "keep" } }) do
         assert(next(EUICT_DBC[pair[1]][pair[2]]) == nil)
@@ -17,7 +17,7 @@ end)
 Test("missing fields use class defaults rather than the current profile", function()
     EUICT_DBC.cd.size = 70
     local normalized = assert(V.Validate({ cd = { enabled = false } }))
-    assert(normalized.cd.size == 36 and normalized.cd.spells[1] == ns.ClassDefaults().cd[1])
+    assert(normalized.cd.size == 36 and normalized.cd.spells[1] == ns.Defaults.ForPlayer().cd[1])
     assert(not normalized.cd.enabled)
 end)
 Test("unknown and storage fields are discarded; class badges remain separate", function()
@@ -28,7 +28,7 @@ Test("unknown and storage fields are discarded; class badges remain separate", f
     assert(candidate.future == nil and candidate.cd.future == nil and candidate.cd.x == nil)
     assert(candidate._class == "MAGE" and candidate.buff.color.a == 1 and candidate.buff.color.future == nil)
     local owner, x, y = EUICT_DBC._owner, EUICT_DBC.cd.x, EUICT_DBC.cd.y
-    assert(ns.ApplyProfile(candidate))
+    assert(ns.Profiles.Apply(candidate))
     assert(EUICT_DBC._owner == owner and EUICT_DBC.cd.x == x and EUICT_DBC.cd.y == y and EUICT_DBC._class == nil)
 end)
 for _, section in ipairs({ "cd", "buff", "remind", "ranks" }) do
@@ -40,7 +40,7 @@ Test("wrong root type", function()
     for _, value in ipairs({ 1, false, "bad" }) do
         local candidate, err = V.Validate(value); assert(not candidate); ErrorContains(err, "profile")
         local before = Kit.Encode(EUICT_DBC)
-        local ok; ok, err = ns.ApplyProfile(value); assert(not ok); ErrorContains(err, "profile")
+        local ok; ok, err = ns.Profiles.Apply(value); assert(not ok); ErrorContains(err, "profile")
         assert(before == Kit.Encode(EUICT_DBC))
     end
 end)
@@ -53,7 +53,7 @@ for _, pair in ipairs({ { "cd", "spells" }, { "buff", "spells" }, { "remind", "s
                 local input = { [section] = { [field] = value } }
                 local before = Kit.Encode(EUICT_DBC)
                 local candidate, err = V.Validate(input); assert(not candidate); ErrorContains(err, section .. "." .. field)
-                assert(not ns.ApplyProfile(input) and before == Kit.Encode(EUICT_DBC) and value[2] == "hole")
+                assert(not ns.Profiles.Apply(input) and before == Kit.Encode(EUICT_DBC) and value[2] == "hole")
             else Bad({ [section] = { [field] = value } }, section .. "." .. field) end
         end
     end)
@@ -134,10 +134,10 @@ end)
 Test("direct inputs with metatables, cycles and secret values fail without mutation", function()
     local before, library = Kit.Encode(EUICT_DBC), Kit.Encode(EUICT_DB.profiles)
     local cyclic = {}; cyclic.future = cyclic
-    for _, value in ipairs({ cyclic, setmetatable({}, {}), { future = function() end } }) do assert(not ns.ApplyProfile(value)) end
+    for _, value in ipairs({ cyclic, setmetatable({}, {}), { future = function() end } }) do assert(not ns.Profiles.Apply(value)) end
     local old = issecretvalue
     issecretvalue = function(value) return value == "secret-profile-value" end
-    local ok, err = ns.ApplyProfile({ cd = { spells = { "secret-profile-value" } } }); assert(not ok); ErrorContains(err, "secret")
+    local ok, err = ns.Profiles.Apply({ cd = { spells = { "secret-profile-value" } } }); assert(not ok); ErrorContains(err, "secret")
     issecretvalue = old
     assert(Kit.Encode(EUICT_DBC) == before and Kit.Encode(EUICT_DB.profiles) == library)
 end)

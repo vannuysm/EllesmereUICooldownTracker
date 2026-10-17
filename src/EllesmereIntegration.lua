@@ -3,19 +3,19 @@ local ADDON_NAME, ns = ...
 local EUI = EllesmereUI
 if not (EUI and EUI.RegisterPlugin) then return end
 local PLUGIN = ADDON_NAME
+local Preview, ProfileUI = ns.TrackerPreview, ns.ProfileUI
 
 local MODULES = { buff = "BuffBars", cd = "CooldownBar", remind = "Reminders", profiles = "Profiles" }
-local function Rebuild(tracker, refresh)
-    local key = EUI.GetPluginModuleKey(PLUGIN, MODULES[tracker or "buff"])
+local function Rebuild(module, refresh)
+    local key = EUI.GetPluginModuleKey(PLUGIN, MODULES[module])
     EUI:InvalidateModulePageCache(key)
     if refresh ~= false and EUI:GetActiveModule() == key then EUI:RefreshPage(true) end
 end
-ns.RefreshBuffSettings = Rebuild
-function ns.RefreshProfileSettings(refresh)
-    ns.UpdateProfileHeader()
+local function RefreshProfiles(refresh)
+    ProfileUI.UpdateHeader()
     Rebuild("profiles", refresh)
 end
-function ns.RefreshTrackerSettings(changes, options)
+local function RefreshTrackers(changes, options)
     for _, tracker in ipairs({ "buff", "cd", "remind" }) do
         if not changes or changes[tracker] then
             local fields = changes and changes[tracker]
@@ -27,12 +27,18 @@ function ns.RefreshTrackerSettings(changes, options)
         end
     end
 end
+ns.Configuration.Subscribe(function(changes, options)
+    if options.position then return end -- no page or preview displays screen coordinates
+    if options.profile then RefreshTrackers() else RefreshTrackers(changes, options) end
+    RefreshProfiles()
+end)
+ns.Profiles.OnLibraryChanged(RefreshProfiles)
 
 local function Header(tracker)
     return function(frame)
         if frame.euictProfileHeader then frame.euictProfileHeader:Hide() end
         frame.euictPreviews = frame.euictPreviews or {}
-        local preview = tracker == "cd" and ns.PreviewCd or (tracker == "remind" and ns.PreviewRemind or ns.PreviewBuff)
+        local preview = tracker == "cd" and Preview.Cd or (tracker == "remind" and Preview.Remind or Preview.Buff)
         local mode = tracker == "remind" and "normal" or "combat"
         local height = tracker == "cd" and 240 or 120
         local stage = frame.euictPreviews[tracker]
@@ -80,19 +86,21 @@ local registered = EUI.RegisterPlugin(PLUGIN, {
     }, {
         key = "Profiles", title = "Manage Profiles",
         description = "Save, load, rename and delete account profiles, or import and export your setups.",
-        pages = { "Profiles", "Import / Export" }, buildPage = ns.BuildProfilePage, searchPrebuild = false,
-        getHeaderBuilder = function() return ns.BuildProfileHeader end,
-        onModuleLeave = ns.CloseProfileUI,
+        pages = { "Profiles", "Import / Export" }, buildPage = ProfileUI.BuildPage, searchPrebuild = false,
+        getHeaderBuilder = function() return ProfileUI.BuildHeader end,
+        onModuleLeave = ProfileUI.Close,
     } },
 })
 if registered then
-    function ns.OpenTrackerSettings(tracker) return EUI.OpenPlugin(PLUGIN, MODULES[tracker], "Display") end
-    function ns.OpenBuffSettings() return ns.OpenTrackerSettings("buff") end
-    function ns.OpenProfileSettings(tab)
-        return EUI.OpenPlugin(PLUGIN, "Profiles", type(tab) == "string" and tab or "Profiles")
+    -- key: "cd", "buff", "remind" or "profiles"; tab: an optional profiles page.
+    local function Open(key, tab)
+        if key == "profiles" then return EUI.OpenPlugin(PLUGIN, "Profiles", type(tab) == "string" and tab or "Profiles") end
+        return EUI.OpenPlugin(PLUGIN, MODULES[key], "Display")
     end
-    ns.settingsPages.buff:Button("Ellesmere UI", "Open Buff Bars", ns.OpenBuffSettings)
-    ns.settingsPages.cd:Button("Ellesmere UI", "Open Cooldown Bar", function() ns.OpenTrackerSettings("cd") end)
-    ns.settingsPages.remind:Button("Ellesmere UI", "Open Reminders", function() ns.OpenTrackerSettings("remind") end)
-    ns.settingsPages.profiles:Button("Ellesmere UI", "Open Manage Profiles", ns.OpenProfileSettings)
+    ns.Ellesmere = { Open = Open }
+    local pages = ns.SettingsUI.pages
+    pages.buff:Button("Ellesmere UI", "Open Buff Bars", function() Open("buff") end)
+    pages.cd:Button("Ellesmere UI", "Open Cooldown Bar", function() Open("cd") end)
+    pages.remind:Button("Ellesmere UI", "Open Reminders", function() Open("remind") end)
+    pages.profiles:Button("Ellesmere UI", "Open Manage Profiles", function() Open("profiles") end)
 end

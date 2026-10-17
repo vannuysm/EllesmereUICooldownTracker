@@ -1,12 +1,13 @@
 -- Missing-buff collection, learned alternatives and pooled reminder rows.
 local _, ns = ...
 local DB = ns.Database.character
-local State = ns.Collection
+local Collection = ns.Collection
 local Frames = ns.TrackerFrames
-local Readable = State.Readable
+local Appearance = ns.TrackerAppearance
+local Readable = Collection.Readable
 local Reminders = {}
 ns.Trackers.remind = Reminders
-local IsOwnSpell, OutOfRange = State.IsOwnSpell, State.OutOfRange
+local IsOwnSpell, OutOfRange = Collection.IsOwnSpell, Collection.OutOfRange
 
 -- Buff reminders ------------------------------------------------------------
 -- Out of combat, a line for each buff that's missing: on you, and (opt-in) your buff on party members or a friendly
@@ -17,12 +18,12 @@ local remindRoot
 
 local learnedEntries, learnedRevision = {}, -1
 local function Learned(entry)
-    if learnedRevision ~= State.spellRevision then wipe(learnedEntries); learnedRevision = State.spellRevision end
+    if learnedRevision ~= Collection.spellRevision then wipe(learnedEntries); learnedRevision = Collection.spellRevision end
     if learnedEntries[entry] then return learnedEntries[entry] end
     local out = {}
     for name in entry:gmatch("[^/]+") do
         name = name:match("^%s*(.-)%s*$")
-        local info = name ~= "" and State.Spell(name)
+        local info = name ~= "" and Collection.Spell(name)
         if info and IsOwnSpell(info.spellID) then out[#out + 1] = info end
     end
     learnedEntries[entry] = out
@@ -51,7 +52,7 @@ end
 -- true or false; nil when the unit's auras can't be read (secret), so it never reminds on a guess.
 -- mine: only buffs the player cast count (another paladin's Kings doesn't replace your Might).
 local function HasBuff(unit, learned, mine)
-    return State.HasBuff(State.Auras(unit), learned, mine)
+    return Collection.HasBuff(Collection.Auras(unit), learned, mine)
 end
 
 -- A test that may come back secret: only a readable true counts.
@@ -88,16 +89,19 @@ local function UnitLabel(u)
     return name
 end
 
-local function RemindLine(i)
-    if remindRoot.items[i] then return remindRoot.items[i] end
-    local l = CreateFrame("Frame", nil, remindRoot)
+-- A line without tracker callbacks.
+local function NewLine(parent)
+    local l = CreateFrame("Frame", nil, parent)
     l.icon = l:CreateTexture(nil, "ARTWORK")
     l.icon:SetPoint("LEFT")
     l.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     l.text = l:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     l.text:SetPoint("LEFT", l.icon, "RIGHT", 6, 0)
-    Frames.AttachMouse(l, remindRoot, "remind")
-    remindRoot.items[i] = l
+    return l
+end
+local function TrackerLine(root)
+    local l = NewLine(root)
+    Frames.AttachMouse(l, root, "remind")
     return l
 end
 
@@ -148,34 +152,37 @@ local function CollectReminders()
     end
     return lines
 end
-local function RenderReminders(lines)
+-- Stacks { icon, text } lines in root's pool, building missing ones with make(root). Returns the widest line's width.
+local function Render(root, lines, make)
     local c = DB.remind
     local width = 1
     for i, line in ipairs(lines) do
-        local l = RemindLine(i)
+        local l = root.items[i] or make(root)
+        root.items[i] = l
         l:SetSize(c.size, c.size)
         l.icon:SetSize(c.size, c.size)
         l.icon:SetTexture(line[1])
         l.text:SetText(line[2])
-        if ns.ApplyReminderAppearance then ns.ApplyReminderAppearance(l) end
+        Appearance.ApplyReminder(l)
         l:SetWidth(c.size + 6 + l.text:GetStringWidth())
         l:ClearAllPoints()
         l:SetPoint("TOP", 0, -(i - 1) * (c.size + c.gap))
         l:Show()
         width = math.max(width, l:GetWidth())
     end
-    for i = #lines + 1, #remindRoot.items do
-        local line = remindRoot.items[i]
+    for i = #lines + 1, #root.items do
+        local line = root.items[i]
         line:Hide(); line.text:SetText(""); line.icon:SetTexture(nil)
     end
-    remindRoot:SetSize(width, math.max(1, #lines * (c.size + c.gap) - c.gap))
-    remindRoot:SetShown(#lines > 0)
+    root:SetSize(width, math.max(1, #lines * (c.size + c.gap) - c.gap))
+    return width
 end
 
 local function UpdateRemind(renderOnly)
     if not remindRoot then return end
     if not renderOnly then reminderLines = CollectReminders() end
-    RenderReminders(reminderLines)
+    Render(remindRoot, reminderLines, TrackerLine)
+    remindRoot:SetShown(#reminderLines > 0)
 end
 
 function Reminders.Init()
@@ -192,3 +199,5 @@ function Reminders.Root() return remindRoot end
 Reminders.Update = UpdateRemind
 Reminders.Learned = Learned
 Reminders.Label = Label
+Reminders.NewLine = NewLine
+Reminders.Render = Render

@@ -11,8 +11,8 @@ def codec_runtime(lua_runtime_name):
     lua = importlib.import_module(f"lupa.{lua_runtime_name}").LuaRuntime(
         unpack_returned_tuples=True
     )
-    ns = lua.eval("{ Kit = {}, CLASS_BLESSING = {} }")
-    ns.ClassDefaults = lua.eval(
+    ns = lua.eval("{ Kit = {}, Defaults = { CLASS_BLESSING = {} } }")
+    ns.Defaults.ForPlayer = lua.eval(
         "function() return { cd = {}, buff = {}, self = {}, ally = {} } end"
     )
     loader = lua.eval(

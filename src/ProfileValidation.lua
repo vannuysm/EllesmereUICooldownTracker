@@ -53,6 +53,16 @@ local schema = {
 
 function V.IsConfigSection(section) return schema[section] ~= nil end
 function V.IsConfigField(section, field) return schema[section] ~= nil and schema[section][field] ~= nil end
+-- The allowed bounds of a numeric field, so every editor offers the range validation accepts.
+function V.Range(section, field)
+    local rule = schema[section][field]
+    return rule.low, rule.high
+end
+
+function V.Growth(config)
+    if config.orientation == "vertical" then return config.growth == "up" and "up" or "down" end
+    return config.growth == "left" and "left" or "right"
+end
 
 local function Copy(value)
     if type(value) ~= "table" then return value end
@@ -66,10 +76,10 @@ function V.Defaults()
         out[section] = {}
         for field, rule in pairs(fields) do out[section][field] = Copy(rule.default) end
     end
-    local class = ns.ClassDefaults()
+    local class = ns.Defaults.ForPlayer()
     out.cd.spells, out.buff.spells = Copy(class.cd), Copy(class.buff)
     out.remind.self, out.remind.ally = Copy(class.self), Copy(class.ally)
-    out.remind.byClass = Copy(ns.CLASS_BLESSING)
+    out.remind.byClass = Copy(ns.Defaults.CLASS_BLESSING)
     return out
 end
 
@@ -203,6 +213,22 @@ function V.Validate(data)
     end)
     if not ok then return nil, candidate end
     return candidate
+end
+
+-- Saved settings are not validated as a whole on load; reset only the fields that fail so later snapshots succeed.
+function V.Repair(db)
+    local defaults, repaired = V.Defaults(), {}
+    for section, fields in pairs(schema) do
+        local config = db[section]
+        for field, rule in pairs(fields) do
+            local path = section .. "." .. field
+            if not pcall(ValidateField, config[field], rule, path, defaults[section][field]) then
+                config[field] = defaults[section][field]
+                repaired[#repaired + 1] = path
+            end
+        end
+    end
+    return repaired
 end
 
 function V.Snapshot(db, class)

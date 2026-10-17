@@ -1,5 +1,7 @@
 local _, ns = ...
 local Kit = ns.Kit
+local Codec = {}
+ns.ProfileCodec = Codec
 local ESCAPES = { n = "\n", t = "\t", r = "\r" }
 
 -- Settings as text that can be pasted into chat or Discord and back: "<tag>:" followed by a Lua-like table literal.
@@ -147,7 +149,7 @@ function Kit.Decode(s)
 end
 
 -- Parsing and normalization are read-only. The caller stores this candidate only after success.
-function ns.DecodeProfile(raw)
+function Codec.Decode(raw)
     local limits = ns.ProfileValidation.Limits
     if type(raw) ~= "string" then return nil, "input: expected text" end
     if #raw > limits.input then return nil, "input: exceeds " .. limits.input .. " bytes" end

@@ -1,13 +1,14 @@
 -- Cooldown resolution, icon pools, sweeps, range and ready glows.
 local _, ns = ...
 local DB = ns.Database.character
-local State = ns.Collection
+local Collection = ns.Collection
 local Frames = ns.TrackerFrames
-local Readable = State.Readable
+local Appearance = ns.TrackerAppearance
+local Readable = Collection.Readable
 local Cooldowns = {}
 ns.Trackers.cd = Cooldowns
-local cdRoot
-local OutOfRange = State.OutOfRange
+local cdRoot, QueueUpdate
+local OutOfRange = Collection.OutOfRange
 
 -- Sets a cooldown sweep without erroring on secret values. Returns true if a sweep was set.
 -- The duration object comes first: it is not secret in combat, so the widget gets its sweep and countdown numbers there
@@ -80,7 +81,7 @@ local function SetCdGlow(b, shown)
         if glow.edges then for _, edge in ipairs(glow.edges) do edge:Hide() end end
         glow:Show()
         engine.StartSpecGlow(glow, CdGlowSpec(glow, engine, profile), size, size, "icon",
-            b.previewCombat ~= nil and engine.PANEL_EXTRA or nil)
+            b.panelGlow and engine.PANEL_EXTRA or nil)
         glow.engine = engine
     else
         -- Standalone fallback: four outer edge strips, leaving the icon's centre untouched.
@@ -116,7 +117,7 @@ local function UpdateCdRange()
     end
 end
 
-local BagItem, KnownSpell = State.Item, State.KnownSpell
+local BagItem, KnownSpell = Collection.Item, Collection.KnownSpell
 
 local SizeCdRoot = Frames.SizeIcons
 
@@ -127,12 +128,11 @@ end
 local function PositionCdButton(b, root, c, i)
     b:SetSize(c.size, c.size)
     AnchorCdButton(b, root, c, i)
-    if ns.ApplyCooldownAppearance then ns.ApplyCooldownAppearance(b) end
+    Appearance.ApplyCooldown(b)
 end
-local function CdButton(i, root)
-    root = root or cdRoot
-    if root.items[i] then return root.items[i] end
-    local b = CreateFrame("Frame", nil, root)
+-- A button without tracker callbacks. Set panelGlow on buttons shown inside a settings panel.
+local function NewButton(parent)
+    local b = CreateFrame("Frame", nil, parent)
     b.icon = b:CreateTexture(nil, "ARTWORK")
     b.icon:SetAllPoints()
     b.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
@@ -145,27 +145,24 @@ local function CdButton(i, root)
     b.glow:EnableMouse(false)
     b.glow:Hide()
     b:SetScript("OnHide", function(self) SetCdGlow(self, false) end)
-    if root == cdRoot then
-        b.cd:SetScript("OnCooldownDone", function() ns.QueueCooldownUpdate(b.spellID and "spell" or "item", b.spellID) end)
-        Frames.AttachMouse(b, cdRoot, "cd")
-    else
-        b.cd:SetScript("OnCooldownDone", function()
-            b.icon:SetDesaturated(false)
-            b.ready = true
-            SetCdGlow(b, b.previewCombat and b.previewSpell)
-        end)
-    end
-    root.items[i] = b
+    return b
+end
+local function CdButton(i)
+    if cdRoot.items[i] then return cdRoot.items[i] end
+    local b = NewButton(cdRoot)
+    b.cd:SetScript("OnCooldownDone", function() QueueUpdate(b.spellID and "spell" or "item", b.spellID) end)
+    Frames.AttachMouse(b, cdRoot, "cd")
+    cdRoot.items[i] = b
     return b
 end
 
 local cdShown, cdSpellRevision, cdBagRevision = {}, -1, -1
 local cdResolutionDirty = true
 local function ResolveCooldowns()
-    if not cdResolutionDirty and cdSpellRevision == State.spellRevision and cdBagRevision == State.bagRevision then return cdShown end
+    if not cdResolutionDirty and cdSpellRevision == Collection.spellRevision and cdBagRevision == Collection.bagRevision then return cdShown end
     wipe(cdShown)
     for _, name in ipairs(DB.cd.spells) do
-        local info = State.Spell(name)
+        local info = Collection.Spell(name)
         if info and KnownSpell(info.spellID) then cdShown[#cdShown + 1] = { spell = info }
         else
             local item = BagItem(name)
@@ -173,7 +170,7 @@ local function ResolveCooldowns()
         end
     end
     cdResolutionDirty, cdLayoutDirty, cdStateDirty = false, true, true
-    cdSpellRevision, cdBagRevision = State.spellRevision, State.bagRevision
+    cdSpellRevision, cdBagRevision = Collection.spellRevision, Collection.bagRevision
     return cdShown
 end
 local function ReleaseCd(b)
@@ -203,7 +200,7 @@ local function RenderCooldownAppearance()
     for _, b in ipairs(cdRoot.items) do
         if b:IsShown() then
             b.cd:SetHideCountdownNumbers(not DB.cd.numbers)
-            if ns.ApplyCooldownAppearance then ns.ApplyCooldownAppearance(b) end
+            Appearance.ApplyCooldown(b)
         end
     end
     cdAppearanceDirty = false
@@ -245,18 +242,20 @@ function UpdateCd(renderOnly, kind, ids)
     if cdLayoutDirty then RenderCooldownLayout(entries) end
     if cdAppearanceDirty then RenderCooldownAppearance() end
     if not renderOnly then
-        State.Cooldowns(entries, kind, ids)
+        Collection.Cooldowns(entries, kind, ids)
         RenderCooldownState(entries)
         cdStateDirty = false
     end
     UpdateCdRange()
 end
 
-function Cooldowns.Init()
+-- queueUpdate(kind, spellID) coalesces cooldown refreshes; kind is "spell", "item" or "all".
+function Cooldowns.Init(queueUpdate)
     if cdRoot then return end
+    QueueUpdate = queueUpdate
     cdRoot = Frames.MakeRoot("CD", "cd")
     C_Timer.NewTicker(0.5, function()
-        if cdWaiting and cdRoot:IsShown() then ns.QueueCooldownUpdate("all") end
+        if cdWaiting and cdRoot:IsShown() then QueueUpdate("all") end
     end)
     C_Timer.NewTicker(0.2, UpdateCdRange)
 end
@@ -269,9 +268,9 @@ function Cooldowns.ApplyConfiguration(effects)
 end
 
 function Cooldowns.RefreshAppearance()
-    if cdRoot and cdRoot:IsShown() and ns.ApplyCooldownAppearance then
+    if cdRoot and cdRoot:IsShown() then
         for _, button in ipairs(cdRoot.items) do
-            if button:IsShown() then ns.ApplyCooldownAppearance(button) end
+            if button:IsShown() then Appearance.ApplyCooldown(button) end
         end
     end
 end
@@ -279,6 +278,6 @@ end
 function Cooldowns.Root() return cdRoot end
 Cooldowns.Update = UpdateCd
 -- Previews reuse the widget construction and styling without live tracker callbacks.
-Cooldowns.Button = CdButton
+Cooldowns.NewButton = NewButton
 Cooldowns.PositionButton = PositionCdButton
 Cooldowns.SetGlow = SetCdGlow

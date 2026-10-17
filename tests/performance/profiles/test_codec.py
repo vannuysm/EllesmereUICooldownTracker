@@ -40,7 +40,7 @@ def measure(operation, value, batch):
 @pytest.mark.parametrize("workload,raw,valid", list(decode_samples()))
 def test_decode_workload(codec_runtime, workload, raw, valid, record_performance):
     _, ns, batch = codec_runtime
-    result = ns.DecodeProfile(raw)
+    result = ns.ProfileCodec.Decode(raw)
     candidate, error = result if isinstance(result, tuple) else (result, None)
     if valid:
         assert candidate is not None
@@ -48,7 +48,7 @@ def test_decode_workload(codec_runtime, workload, raw, valid, record_performance
         assert candidate is None and isinstance(error, str)
     record_performance(
         workload=workload, operation="decode", input_bytes=len(raw.encode("utf-8")),
-        **measure(ns.DecodeProfile, raw, batch),
+        **measure(ns.ProfileCodec.Decode, raw, batch),
     )
 
 

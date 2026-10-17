@@ -5,7 +5,20 @@ ns.TrackerFrames = Frames
 ns.Trackers = {}
 local DB = ns.Database.character
 
-Frames.Growth = ns.Configuration.Growth
+Frames.Growth = ns.ProfileValidation.Growth
+
+function Frames.Root(key)
+    local tracker = ns.Trackers[key]
+    return tracker and tracker.Root()
+end
+
+function Frames.SavePosition(key, x, y)
+    local cfg = DB[key]
+    if not cfg or type(x) ~= "number" or type(y) ~= "number" then return end
+    cfg.x, cfg.y = x, y
+    ns.Configuration.Apply({ [key] = { x = true, y = true } }, { position = true })
+    ns.Kit.SaveEditModePosition(key)
+end
 
 function Frames.MakeRoot(name, key)
     local cfg = DB[key]
@@ -23,7 +36,7 @@ function Frames.MakeRoot(name, key)
         local ux, uy = UIParent:GetCenter()
         local s = self:GetEffectiveScale() / UIParent:GetEffectiveScale()
         x, y = math.floor(x * s - ux + 0.5), math.floor(y * s - uy + 0.5)
-        ns.SaveTrackerPosition(key, x, y)
+        Frames.SavePosition(key, x, y)
     end)
     f.bg = f:CreateTexture(nil, "BACKGROUND")
     f.bg:SetAllPoints()
@@ -39,7 +52,7 @@ function Frames.AttachMouse(item, root, key)
     item:RegisterForDrag("LeftButton")
     item:SetScript("OnMouseUp", function(_, button)
         if button == "RightButton" then
-            if ns.OpenTrackerSettings then ns.OpenTrackerSettings(key) else ns.OpenSettings() end
+            ns.SettingsUI.Open(key)
         end
     end)
     item:SetScript("OnDragStart", function() if not DB[key].locked then root:StartMoving() end end)

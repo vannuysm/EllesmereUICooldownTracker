@@ -59,7 +59,7 @@ tests/
       support.lua
       fixtures/                     # stable Hunter/Paladin FCT1 literals
     trackers/
-      test_configuration.py         # controls, startup reconciliation, inherited borders, positions
+      test_configuration.py         # controls, startup reconciliation, reset, saved-data repair, inherited borders, positions
       test_cooldowns.py              # caches, events, visibility, native durations
       test_buffs.py                  # aura deltas, resets, synthetic timers, text
       test_reminders.py              # alternatives, ownership, ordering, uncertainty

@@ -1,6 +1,6 @@
 local ctx = ...
 local M, ns = ctx.mocks, ctx.ns
-for _, page in pairs(ns.settingsPages) do page.frame:Hide() end
+for _, page in pairs(ns.SettingsUI.pages) do page.frame:Hide() end
 local function Spell(name, id)
     local info = { name = name, spellID = id, iconID = id + 1000 }
     M.spellInfo[name], M.spellInfo[id], M.known[id] = info, info, true
@@ -21,11 +21,11 @@ for _, unit in ipairs({ "player", "party1", "party2", "party3", "party4" }) do
         M.auras[unit][i] = { name = name, auraInstanceID = i, duration = 300, expirationTime = 400, icon = 100, sourceUnit = "player" }
     end
 end
-assert(ns.ApplyProfile({ cd = { visibility = "always", spells = cds }, buff = { spells = buffs },
+assert(ns.Profiles.Apply({ cd = { visibility = "always", spells = cds }, buff = { spells = buffs },
     remind = { self = reminders, ally = reminders, byClass = {}, party = true }, ranks = { enabled = false } }))
 M.Flush()
 local stage = CreateFrame("Frame"); stage.note = stage:CreateFontString()
-ns.PreviewCd(stage, "normal") -- warm the preview pool/cache before measuring
+ns.TrackerPreview.Cd(stage, "normal") -- warm the preview pool/cache before measuring
 
 local iterations = 100
 local scenarios = {
@@ -35,9 +35,9 @@ local scenarios = {
     { "two-second safety refresh", function() M.Tick(2) end },
     { "cooldown text color", function(i)
         local color = { r = (i % 10) / 10, g = 0, b = 0 }
-        ns.SetConfig("cd", "textColor", color)
+        ns.Configuration.Set("cd", "textColor", color)
     end },
-    { "cooldown preview draw", function() ns.PreviewCd(stage, "normal") end },
+    { "cooldown preview draw", function() ns.TrackerPreview.Cd(stage, "normal") end },
 }
 return function(scenarioIndex)
     local scenario = assert(scenarios[scenarioIndex])

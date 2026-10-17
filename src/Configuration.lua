@@ -2,15 +2,11 @@
 local _, ns = ...
 local C = {}
 ns.Configuration = C
+local Database, Growth = ns.Database, ns.ProfileValidation.Growth
 
 local data = { spells = true, self = true, ally = true, byClass = true }
 local layout = { size = true, width = true, height = true, gap = true, orientation = true, growth = true }
 local visibility = { enabled = true, locked = true, visibility = true, party = true, target = true, editing = true }
-
-function C.Growth(config)
-    if config.orientation == "vertical" then return config.growth == "up" and "up" or "down" end
-    return config.growth == "left" and "left" or "right"
-end
 
 function C.Effects(fields)
     local effects = {}
@@ -48,35 +44,27 @@ function C.Changes(db, candidate)
     return changes
 end
 
+-- Listeners run in subscription order with (changes, options); changes maps section -> changed fields.
+local listeners = {}
+function C.Subscribe(listener) listeners[#listeners + 1] = listener end
+
 -- Call after a validated profile commit or an editor's valid, in-place list mutation.
 function C.Apply(changes, options)
     options = options or {}
-    if ns.Profiles and not (options.profile or options.initialization or options.refresh or options.position) then
-        local _, err = ns.Profiles.AutoSave(changes)
-        if err then print("EllesmereUICooldownTracker: Could not automatically save the active profile: " .. err) end
-    end
-    for section, fields in pairs(changes) do
-        if section == "ranks" then
-            if fields.enabled or fields.keep or fields.all then ns.Ranks.ResetTold() end
-            ns.Ranks.Check() -- owns combat deferral and automatic rank upgrades
-        else
-            ns.ApplyTrackerConfiguration(section, C.Effects(fields), options)
-        end
-    end
-    if ns.RefreshConfigurationPages then ns.RefreshConfigurationPages(changes, options) end
+    for _, listener in ipairs(listeners) do listener(changes, options) end
 end
 
-function ns.SetConfig(section, field, value, options)
-    local cfg = ns.TrackerConfig(section)
+function C.Set(section, field, value, options)
+    local cfg = Database.TrackerConfig(section)
     cfg[field] = value
     local fields = { [field] = true }
     if field == "orientation" then
-        cfg.growth = C.Growth(cfg)
+        cfg.growth = Growth(cfg)
         fields.growth = true
     end
     C.Apply({ [section] = fields }, options)
 end
 
-function ns.ConfigChanged(section, field, options)
+function C.Changed(section, field, options)
     C.Apply({ [section] = { [field] = true } }, options)
 end

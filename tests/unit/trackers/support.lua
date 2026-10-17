@@ -1,7 +1,7 @@
 return function(ctx)
 local M, ns = ctx.mocks, ctx.ns
 local function Empty()
-    assert(ns.ApplyProfile({ cd = { spells = {}, visibility = "always" }, buff = { spells = {} }, remind = { self = {}, ally = {} }, ranks = { enabled = false } }))
+    assert(ns.Profiles.Apply({ cd = { spells = {}, visibility = "always" }, buff = { spells = {} }, remind = { self = {}, ally = {} }, ranks = { enabled = false } }))
 end
 local function Spell(name, id, pet)
     local info = { name = name, spellID = id, iconID = id + 1000 }

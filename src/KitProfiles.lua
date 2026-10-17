@@ -1,4 +1,4 @@
--- Blizzard profile editor and shared import collision handling.
+-- Blizzard profile editor.
 local _, ns = ...
 local Kit = ns.Kit
 local Make = Kit.Make
@@ -7,13 +7,9 @@ local PAD = 16
 local Heading = Kit.Heading
 
 -- Profiles --------------------------------------------------------------------------------------------------------------
--- Compatibility entry point for the reusable editor; import policy belongs to the profile library.
-function Kit.ImportProfile(opts, raw, choice)
-    return ns.Profiles.ImportInto(opts, raw, choice)
-end
-
--- snapshot/apply/decode return nil plus an error on failure; decode returns a validated name/data candidate.
--- opts = { tag = "FCT1", store = fn() -> table name -> data, snapshot, apply, decode, onChange, onStoreChange, onSave }
+-- snapshot/apply return nil plus an error on failure. import(raw, choice) stores a decoded profile and announces the
+-- store change itself; it returns the stored name, or nil, an error and the duplicate name when one collides.
+-- opts = { tag = "FCT1", store = fn() -> table name -> data, snapshot, apply, import, onChange, onStoreChange, onSave }
 function Page:Profiles(opts)
     local page = self
     -- saved profiles: one row each with Load and Delete
@@ -154,7 +150,7 @@ function Page:Profiles(opts)
     end
     local function Import(choice)
         local raw = pendingImport and pendingImport.raw or (text:GetText() or "")
-        local name, err, duplicate = Kit.ImportProfile(opts, raw, choice)
+        local name, err, duplicate = opts.import(raw, choice)
         if duplicate then
             pendingImport = { raw = raw }
             conflictName:SetText('A profile named "' .. duplicate .. '" already exists. Choose what to do with this import:')
@@ -175,7 +171,6 @@ function Page:Profiles(opts)
         istatus:SetText("Added \"" .. name .. "\". Load it above.")
         istatus:SetTextColor(0.4, 1, 0.4)
         Update()
-        if opts.onStoreChange then opts.onStoreChange() end
     end
     import:SetScript("OnClick", function() Import() end)
     for i, info in ipairs({ { "Overwrite", "overwrite" }, { "Keep both", "keep" }, { "Cancel" } }) do
@@ -205,9 +200,9 @@ function Page:Profiles(opts)
             r:SetPoint("TOPLEFT", PAD, -top - (i - 1) * 30)
             r:SetPoint("RIGHT", -PAD, 0)
             r.name:SetText(name)
-            local b = opts.badge and opts.badge(opts.store()[name])
-            r.badge:SetShown(b and b.atlas and pcall(r.badge.SetAtlas, r.badge, b.atlas) or false)
-            r.from:SetText(b and b.text or "")
+            local badge = opts.badge and opts.badge(opts.store()[name])
+            r.badge:SetShown(badge and badge.atlas and pcall(r.badge.SetAtlas, r.badge, badge.atlas) or false)
+            r.from:SetText(badge and badge.text or "")
             r.load:SetScript("OnClick", function()
                 local ok, err = opts.apply(opts.store()[name], name)
                 if not ok then Say("Could not load: " .. err, 1, 0.5, 0.3) return end

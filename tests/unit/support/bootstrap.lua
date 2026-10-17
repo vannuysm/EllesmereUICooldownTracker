@@ -31,7 +31,7 @@ return function(standalone)
     end
     M.Fire("ADDON_LOADED", "EllesmereUICooldownTracker")
     assert(EUICT_CD, "tracker initialization did not run")
-    for _, page in pairs(ns.settingsPages) do page.frame:Hide() end
+    for _, page in pairs(ns.SettingsUI.pages) do page.frame:Hide() end
     local cases = {}
     local function Test(name, run) cases[#cases + 1] = { name = name, run = run } end
     return { mocks = M, ns = ns, modules = modules, widgets = widgets, path = Path, cases = cases, Test = Test }

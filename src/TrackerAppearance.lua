@@ -1,6 +1,9 @@
--- Tracker styling and optional Action Bar appearance inheritance.
+-- Tracker styling, optionally inherited from an EllesmereUI Action Bar.
 local _, ns = ...
+local Appearance = {}
+ns.TrackerAppearance = Appearance
 local EUI = EllesmereUI
+local TrackerConfig = ns.Database.TrackerConfig
 local DEFAULT_TEXTURE = "Interface/TargetingFrame/UI-StatusBar"
 local textures, textureNames, textureOrder = {}, { default = "Blizzard" }, { "default" }
 if EUI and EUI.BuildBarTextureTables then
@@ -14,7 +17,7 @@ if EUI and EUI.BuildBarTextureTables then
 end
 
 local function SourceBar(tracker)
-    local c = tracker and ns.TrackerConfig(tracker) or ns.BuffConfig()
+    local c = TrackerConfig(tracker or "buff")
     if not c or c.inheritBar == "none" or not (EUI and EUI.Lite and EUI.Lite.GetAddon) then return end
     local addon = EUI.Lite.GetAddon("EllesmereUIActionBars", true)
     local profile = addon and addon.db and addon.db.profile
@@ -54,8 +57,8 @@ local function ApplyBorder(frame, config, source)
         source and source.borderTextureShiftY, "actionbars", source and source.borderThickness, nil, exact)
 end
 
-function ns.ApplyBuffAppearance(b, inverted)
-    local c = ns.BuffConfig()
+function Appearance.ApplyBuff(b, inverted)
+    local c = TrackerConfig("buff")
     local source = SourceBar()
     local texture = textures[c.texture] or DEFAULT_TEXTURE
     local fill, bg = c.color, c.background
@@ -139,16 +142,17 @@ local function StyleIconBorder(b, c, source, icon)
     end
     ApplyBorder(b.euictIconBorder, c, source)
 end
-function ns.ApplyCooldownAppearance(b)
-    local c, source = ns.TrackerConfig("cd"), SourceBar("cd")
+function Appearance.ApplyCooldown(b)
+    local c, source = TrackerConfig("cd"), SourceBar("cd")
     local fs = b.cd.GetCountdownFontString and b.cd:GetCountdownFontString()
     StyleText(fs, c, source, true)
     StyleIconBorder(b, c, source, b.icon)
 end
-function ns.ApplyReminderAppearance(b)
-    local c, source = ns.TrackerConfig("remind"), SourceBar("remind")
+function Appearance.ApplyReminder(b)
+    local c, source = TrackerConfig("remind"), SourceBar("remind")
     StyleText(b.text, c, source, false)
     StyleIconBorder(b, c, source, b.icon)
 end
 
-ns.EllesmereAppearance = { SourceBar = SourceBar, Color = Color, textureNames = textureNames, textureOrder = textureOrder }
+Appearance.SourceBar, Appearance.Color = SourceBar, Color
+Appearance.textureNames, Appearance.textureOrder = textureNames, textureOrder

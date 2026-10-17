@@ -46,6 +46,11 @@ local function BuildSearch()
     f.foot:SetPoint("BOTTOMLEFT", 12, 8)
     f.foot:SetText("Enter adds the highlighted one  ·  Esc closes")
 
+    -- The spellbook and bags are scanned once per opening, not on every keystroke.
+    function f:Catalog(source)
+        self.catalog[source] = self.catalog[source] or (source == "spells" and Kit.Spellbook() or Kit.Bags())
+        return self.catalog[source]
+    end
     function f:Results()
         local o, text = self.opts, (box:GetText() or ""):lower():match("^%s*(.-)%s*$")
         local out = {}
@@ -69,8 +74,8 @@ local function BuildSearch()
             end
         end
         for _, src in ipairs(o.sources or { "spells" }) do
-            if src == "spells" then scan(Kit.Spellbook(), "FROM YOUR SPELLBOOK", function(e) return e.rank and ("Rank " .. e.rank) or "" end, "spells")
-            elseif src == "items" then scan(Kit.Bags(), "FROM YOUR BAGS", function(e) return e.count .. " in bags" end, "items") end
+            if src == "spells" then scan(self:Catalog("spells"), "FROM YOUR SPELLBOOK", function(e) return e.rank and ("Rank " .. e.rank) or "" end, "spells")
+            elseif src == "items" then scan(self:Catalog("items"), "FROM YOUR BAGS", function(e) return e.count .. " in bags" end, "items") end
         end
         local typed = (box:GetText() or ""):match("^%s*(.-)%s*$")
         local exact = false
@@ -160,6 +165,7 @@ end
 function Kit.OpenSearch(anchor, opts)
     search = search or BuildSearch()
     search.opts = opts
+    search.catalog = {}
     search.anchor = anchor
     search:ClearAllPoints()
     search:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -4)
@@ -170,4 +176,3 @@ function Kit.OpenSearch(anchor, opts)
     search.box:SetFocus()
     return search
 end
-function Kit.Search() return search end

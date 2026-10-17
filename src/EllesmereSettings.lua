@@ -2,10 +2,12 @@
 local _, ns = ...
 local EUI = EllesmereUI
 if not (EUI and EUI.RegisterPlugin) then return end
-local Appearance = ns.EllesmereAppearance
+local Appearance = ns.TrackerAppearance
+local Configuration, Validation, Defaults = ns.Configuration, ns.ProfileValidation, ns.Defaults
+local TrackerConfig = ns.Database.TrackerConfig
 local SourceBar, Color = Appearance.SourceBar, Appearance.Color
 local textureNames, textureOrder = Appearance.textureNames, Appearance.textureOrder
-local TrackingEditor = ns.EllesmereTrackingEditor
+local TrackingEditor = ns.EllesmereWidgets.TrackingEditor
 local EUI_CHANGE = { source = "ellesmere" }
 
 -- Common widgets read the current character table on every access, including after loading a profile.
@@ -19,13 +21,14 @@ local function Controls(tracker, parent, y)
         local _, h = W:Button(parent, text, self.y, fn)
         self.y = self.y - h
     end
-    function ui:get(key) return function() return ns.TrackerConfig(tracker)[key] end end
-    function ui:set(key) return function(value) ns.SetConfig(tracker, key, value, EUI_CHANGE) end end
+    function ui:get(key) return function() return TrackerConfig(tracker)[key] end end
+    function ui:set(key) return function(value) Configuration.Set(tracker, key, value, EUI_CHANGE) end end
     function ui:toggle(text, key)
         local _, h = W:Toggle(parent, text, self.y, self:get(key), self:set(key))
         self.y = self.y - h
     end
-    function ui:slider(text, key, low, high)
+    function ui:slider(text, key)
+        local low, high = Validation.Range(tracker, key)
         local _, h = W:Slider(parent, text, self.y, low, high, 1, self:get(key), self:set(key))
         self.y = self.y - h
     end
@@ -34,8 +37,8 @@ local function Controls(tracker, parent, y)
         self.y = self.y - h
     end
     function ui:swatch(text, key)
-        local _, h = W:ColorPicker(parent, text, self.y, function() return Color(ns.TrackerConfig(tracker)[key]) end,
-            function(r, g, b, a) ns.SetConfig(tracker, key, { r = r, g = g, b = b, a = a }, EUI_CHANGE) end, true)
+        local _, h = W:ColorPicker(parent, text, self.y, function() return Color(TrackerConfig(tracker)[key]) end,
+            function(r, g, b, a) Configuration.Set(tracker, key, { r = r, g = g, b = b, a = a }, EUI_CHANGE) end, true)
         self.y = self.y - h
     end
     function ui:move()
@@ -54,7 +57,7 @@ local function Controls(tracker, parent, y)
     function ui:direction()
         self:dropdown("Orientation", "orientation", { horizontal = "Horizontal", vertical = "Vertical" },
             { "horizontal", "vertical" })
-        if ns.TrackerConfig(tracker).orientation == "vertical" then
+        if TrackerConfig(tracker).orientation == "vertical" then
             self:dropdown("Grow direction", "growth", { up = "Up", down = "Down" }, { "up", "down" })
         else
             self:dropdown("Grow direction", "growth", { right = "Right", left = "Left" }, { "right", "left" })
@@ -65,9 +68,9 @@ local function Controls(tracker, parent, y)
         if not SourceBar(tracker) then
             self:section("BORDER AND TEXT")
             self:toggle("Show icon border", "borderEnabled")
-            self:slider("Border thickness", "borderSize", 1, 8)
+            self:slider("Border thickness", "borderSize")
             self:swatch("Border color", "borderColor")
-            self:slider(timer and "Countdown font size (0 = default)" or "Text font size (0 = default)", "fontSize", 0, 32)
+            self:slider(timer and "Countdown font size (0 = default)" or "Text font size (0 = default)", "fontSize")
             self:swatch("Text color", "textColor")
         end
     end
@@ -84,9 +87,9 @@ local function BuildBuffPage(pageName, parent, y)
         ui:move()
         ui:section("LAYOUT")
         ui:direction()
-        ui:slider("Bar width", "width", 80, 600)
-        ui:slider("Bar height", "height", 12, 64)
-        ui:slider("Spacing", "gap", 0, 30)
+        ui:slider("Bar width", "width")
+        ui:slider("Bar height", "height")
+        ui:slider("Spacing", "gap")
         ui:toggle("Show spell icon", "showIcon")
         ui:toggle("Show buff name", "showName")
         ui:toggle("Show remaining time", "showTime")
@@ -99,10 +102,10 @@ local function BuildBuffPage(pageName, parent, y)
             ui:swatch("Background color", "background")
             ui:section("BORDER AND TEXT")
             ui:toggle("Show border", "borderEnabled")
-            ui:slider("Border thickness", "borderSize", 1, 8)
+            ui:slider("Border thickness", "borderSize")
             ui:swatch("Border color", "borderColor")
-            ui:slider("Buff name font size", "fontSize", 8, 32)
-            ui:slider("Timer font size", "timeFontSize", 8, 32)
+            ui:slider("Buff name font size", "fontSize")
+            ui:slider("Timer font size", "timeFontSize")
             ui:swatch("Text color", "textColor")
         end
     else
@@ -139,8 +142,8 @@ local function BuildCooldownPage(pageName, parent, y)
         ui:move()
         ui:section("LAYOUT")
         ui:direction()
-        ui:slider("Icon size", "size", 16, 80)
-        ui:slider("Spacing", "gap", 0, 30)
+        ui:slider("Icon size", "size")
+        ui:slider("Spacing", "gap")
         ui:toggle("Countdown numbers", "numbers")
         ui:toggle("Dim spells out of range", "rangeDim")
         ui:toggle("Glow when ready in combat", "readyGlow")
@@ -161,8 +164,8 @@ local function BuildRemindersPage(pageName, parent, y)
         ui:toggle("Friendly target", "target")
         ui:move()
         ui:section("LAYOUT")
-        ui:slider("Icon size", "size", 12, 64)
-        ui:slider("Spacing", "gap", 0, 30)
+        ui:slider("Icon size", "size")
+        ui:slider("Spacing", "gap")
     elseif pageName == "Appearance" then
         ui:appearance(false)
     elseif pageName == "Your Buffs" then
@@ -172,16 +175,16 @@ local function BuildRemindersPage(pageName, parent, y)
     else
         ui:section("BLESSING EACH CLASS GETS FROM YOU")
         local values, order = { [""] = "Any" }, { "" }
-        for name in ns.BLESSINGS:gmatch("[^/]+") do
+        for name in Defaults.BLESSINGS:gmatch("[^/]+") do
             name = name:match("^%s*(.-)%s*$")
             values[name], order[#order + 1] = name, name
         end
-        for _, class in ipairs(ns.BLESSING_CLASSES) do
+        for _, class in ipairs(Defaults.BLESSING_CLASSES) do
             local _, h = EUI.Widgets:Dropdown(parent, LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[class] or class,
-                ui.y, values, function() return ns.TrackerConfig("remind").byClass[class] or "" end,
+                ui.y, values, function() return TrackerConfig("remind").byClass[class] or "" end,
                 function(v)
-                    ns.TrackerConfig("remind").byClass[class] = v
-                    ns.ConfigChanged("remind", "byClass", EUI_CHANGE)
+                    TrackerConfig("remind").byClass[class] = v
+                    Configuration.Changed("remind", "byClass", EUI_CHANGE)
                 end, order)
             ui.y = ui.y - h
         end

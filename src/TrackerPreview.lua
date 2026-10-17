@@ -1,40 +1,40 @@
 -- Cached preview resolution and simulated tracker rendering.
 local _, ns = ...
 local DB = ns.Database.character
-local State = ns.Collection
+local Collection = ns.Collection
 local Frames = ns.TrackerFrames
-local Readable = State.Readable
+local Readable = Collection.Readable
 local Kit = ns.Kit
+local Cooldowns, Buffs, Reminders = ns.Trackers.cd, ns.Trackers.buff, ns.Trackers.remind
 local Preview = {}
 ns.TrackerPreview = Preview
 local QUESTION = 134400
-local KnownSpell, BagItem = State.KnownSpell, State.Item
-local CdButton, PositionCdButton, SetCdGlow = ns.Trackers.cd.Button, ns.Trackers.cd.PositionButton, ns.Trackers.cd.SetGlow
-local BuffBar, StyleBar = ns.Trackers.buff.Bar, ns.Trackers.buff.StyleBar
-local Learned, Label = ns.Trackers.remind.Learned, ns.Trackers.remind.Label
+local KnownSpell, BagItem = Collection.KnownSpell, Collection.Item
+local PositionCdButton, SetCdGlow, StyleBar = Cooldowns.PositionButton, Cooldowns.SetGlow, Buffs.StyleBar
+local Learned, Label = Reminders.Learned, Reminders.Label
 local SizeCdRoot, SizeBuffRoot, PositionBuffBar = Frames.SizeIcons, Frames.SizeBars, Frames.PositionBar
 
 -- How a cooldown entry looks in the settings: learned spell, item in your bags, or greyed until then.
 local previewCd, previewBuff, previewSpellRevision, previewBagRevision = {}, {}, -1, -1
 local function PreviewDependencies()
-    if previewSpellRevision ~= State.spellRevision then
-        wipe(previewCd); wipe(previewBuff); previewSpellRevision = State.spellRevision
+    if previewSpellRevision ~= Collection.spellRevision then
+        wipe(previewCd); wipe(previewBuff); previewSpellRevision = Collection.spellRevision
     end
-    if previewBagRevision ~= State.bagRevision then wipe(previewCd); previewBagRevision = State.bagRevision end
+    if previewBagRevision ~= Collection.bagRevision then wipe(previewCd); previewBagRevision = Collection.bagRevision end
 end
 local function ResolveCdUncached(name)
-    local info = State.Spell(name)
+    local info = Collection.Spell(name)
     if info and KnownSpell(info.spellID) then
         Kit.icons[name] = info.iconID
         local ok, sub = pcall(C_Spell.GetSpellSubtext, info.spellID)
         return { icon = info.iconID, spellID = info.spellID, tag = ok and Readable(sub, "string") and sub ~= "" and sub or "Spell" }
     end
     local it = BagItem(name)
-    if it then return { icon = it.icon, tag = ("Item  Â·  %d in your bags"):format(it.count) } end
+    if it then return { icon = it.icon, tag = ("Item  ·  %d in your bags"):format(it.count) } end
     return { icon = Kit.icons[name] or QUESTION, grey = true, tag = "Shows once you learn it, or carry it" }
 end
 local function ResolveBuffUncached(name)
-    local info = State.Spell(name)
+    local info = Collection.Spell(name)
     if info then Kit.icons[name] = info.iconID; return { icon = info.iconID, tag = "Any buff starting with \"" .. name .. "\"" } end
     for _, e in ipairs(Kit.Spellbook()) do
         if e.name:lower():find(name:lower(), 1, true) == 1 then
@@ -68,6 +68,20 @@ local function PreviewRoot(stage)
     stage.root = r
     return r
 end
+local function Pooled(root, i, make)
+    root.items[i] = root.items[i] or make(root)
+    return root.items[i]
+end
+local function PreviewButton(root)
+    local b = Cooldowns.NewButton(root)
+    b.panelGlow = true
+    b.cd:SetScript("OnCooldownDone", function()
+        b.icon:SetDesaturated(false)
+        b.ready = true
+        SetCdGlow(b, b.previewCombat and b.previewSpell)
+    end)
+    return b
+end
 local function Fit(stage, root, w, h, minScale)
     local sw, sh = (stage:GetWidth() or 0) - 24, (stage:GetHeight() or 0) - 12
     local scale = 1
@@ -86,7 +100,7 @@ local function PreviewCd(stage, mode)
     if c.orientation == "vertical" then root:SetPoint("CENTER", stage, "CENTER", 0, -2)
     else root:SetPoint("LEFT", stage, "LEFT", 12, -2) end
     for i, r in ipairs(shown) do
-        local b = CdButton(i, root)
+        local b = Pooled(root, i, PreviewButton)
         PositionCdButton(b, root, c, i)
         b.previewSpell = r.spellID ~= nil
         b.previewCombat = mode == "combat"
@@ -127,7 +141,7 @@ local function PreviewBuff(stage, mode)
         local r = ResolveBuff(name)
         if n < 3 and not r.grey then
             n = n + 1
-            local b = BuffBar(n, root)
+            local b = Pooled(root, n, Buffs.NewBar)
             PositionBuffBar(b, root, c, n)
             b.icon:SetTexture(r.icon)
             b.name:SetText(r.example or name)
@@ -169,29 +183,7 @@ local function PreviewRemind(stage, mode)
             if #wanted > 0 then lines[#lines + 1] = { wanted[1].iconID, Label(wanted) .. " missing: John Morten" } end
         end
     end
-    local width = 1
-    for i, l in ipairs(lines) do
-        root.items[i] = root.items[i] or (function()
-            local f = CreateFrame("Frame", nil, root)
-            f.icon = Kit.Icon(f, 24)
-            f.icon:SetPoint("LEFT")
-            f.text = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-            f.text:SetPoint("LEFT", f.icon, "RIGHT", 6, 0)
-            return f
-        end)()
-        local f = root.items[i]
-        f.icon:SetSize(c.size, c.size)
-        f.icon:SetTexture(l[1])
-        f.text:SetText(l[2])
-        if ns.ApplyReminderAppearance then ns.ApplyReminderAppearance(f) end
-        f:SetSize(c.size + 6 + f.text:GetStringWidth(), c.size)
-        f:ClearAllPoints()
-        f:SetPoint("TOP", 0, -(i - 1) * (c.size + c.gap))
-        f:Show()
-        width = math.max(width, f:GetWidth())
-    end
-    for i = #lines + 1, #root.items do root.items[i]:Hide() end
-    root:SetSize(width, math.max(1, #lines * (c.size + c.gap) - c.gap))
+    local width = Reminders.Render(root, lines, Reminders.NewLine)
     root:ClearAllPoints()
     root:SetPoint("TOP", stage, "TOP", 0, -6)
     Fit(stage, root, width, root:GetHeight())
@@ -208,4 +200,4 @@ end
 Preview.ResolveCd = ResolveCd
 Preview.ResolveBuff = ResolveBuff
 Preview.ResolveSpell = ResolveSpell
-ns.PreviewCd, ns.PreviewBuff, ns.PreviewRemind = PreviewCd, PreviewBuff, PreviewRemind
+Preview.Cd, Preview.Buff, Preview.Remind = PreviewCd, PreviewBuff, PreviewRemind

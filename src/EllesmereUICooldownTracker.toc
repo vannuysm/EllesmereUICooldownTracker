@@ -21,14 +21,16 @@ KitUI.lua
 KitCatalog.lua
 KitSearch.lua
 KitLists.lua
+KitClassPicks.lua
 KitProfiles.lua
 
 # Runtime services and tracker controllers
 Ranks.lua
-Configuration.lua
 Collection.lua
 Database.lua
+Configuration.lua
 TrackerFrames.lua
+TrackerAppearance.lua
 Cooldowns.lua
 Buffs.lua
 Reminders.lua
@@ -42,7 +44,6 @@ EllesmereUICooldownTracker.lua
 
 # Optional Ellesmere UI adapters
 ProfileUI.lua
-EllesmereAppearance.lua
 EllesmereWidgets.lua
 EllesmereSettings.lua
 EllesmereIntegration.lua

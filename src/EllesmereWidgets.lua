@@ -168,9 +168,9 @@ end
 -- Shared tracking editor: ordered rows plus a flexible input and compact add button.
 -- Always fetch the current settings table, including after a profile is loaded.
 local function TrackingEditor(parent, y, tracker, field, options)
-    local function List() return ns.TrackerConfig(tracker)[field] end
+    local function List() return ns.Database.TrackerConfig(tracker)[field] end
     local function Changed()
-        ns.ConfigChanged(tracker, field, EUI_CHANGE)
+        ns.Configuration.Changed(tracker, field, EUI_CHANGE)
     end
     y = y - OrderedList(parent, y, List, Changed, options)
     local pending = ""
@@ -231,4 +231,4 @@ local function TrackingEditor(parent, y, tracker, field, options)
     return y - inputHeight
 end
 
-ns.EllesmereTrackingEditor = TrackingEditor
+ns.EllesmereWidgets = { TrackingEditor = TrackingEditor }

@@ -17,8 +17,8 @@ def test_profiles_slash_without_ellesmere(lua_runtime_name):
         local opened
         ctx.ns.Kit.Open = function(page) opened = page end
         SlashCmdList.EUICT("profiles")
-        assert(opened == ctx.ns.settingsPages.profiles)
+        assert(opened == ctx.ns.SettingsUI.pages.profiles)
         assert(ctx.ns.Profiles.Save("Standalone"))
-        ctx.ns.SetConfig("cd", "size", 61)
+        ctx.ns.Configuration.Set("cd", "size", 61)
         assert(EUICT_DB.profiles.Standalone.cd.size == 61)
     end""")(harness.context)

@@ -1,14 +1,15 @@
 -- Player aura assignments, native duration bars, and synthetic recast timers.
 local _, ns = ...
 local DB = ns.Database.character
-local State = ns.Collection
+local Collection = ns.Collection
 local Frames = ns.TrackerFrames
-local Readable = State.Readable
+local Appearance = ns.TrackerAppearance
+local Readable = Collection.Readable
 local Buffs = {}
 ns.Trackers.buff = Buffs
 local buffRoot
 local SizeBuffRoot, PositionBuffBar = Frames.SizeBars, Frames.PositionBar
-local IsOwnSpell = State.IsOwnSpell
+local IsOwnSpell = Collection.IsOwnSpell
 
 local function BuffEditing()
     return ns.Kit.editMode or (ns.euiBuffUnlock and not InCombatLockdown())
@@ -23,10 +24,9 @@ local function BuffVisible(c)
     end
     return true
 end
-local function BuffBar(i, root)
-    root = root or buffRoot
-    if root.items[i] then return root.items[i] end
-    local b = CreateFrame("Frame", nil, root)
+-- A bar without tracker callbacks.
+local function NewBar(parent)
+    local b = CreateFrame("Frame", nil, parent)
     b.icon = b:CreateTexture(nil, "ARTWORK")
     b.icon:SetPoint("TOPLEFT")
     b.icon:SetPoint("BOTTOMLEFT")
@@ -46,33 +46,29 @@ local function BuffBar(i, root)
     b.name:SetPoint("LEFT", 4, 0)
     b.time = b.bar:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     b.time:SetPoint("RIGHT", -4, 0)
-    if root == buffRoot then Frames.AttachMouse(b, buffRoot, "buff") end
-    root.items[i] = b
+    return b
+end
+local function BuffBar(i)
+    if buffRoot.items[i] then return buffRoot.items[i] end
+    local b = NewBar(buffRoot)
+    Frames.AttachMouse(b, buffRoot, "buff")
+    buffRoot.items[i] = b
     return b
 end
 
--- Aura fields may be secret in combat; only readable names can be matched.
-local function Matches(a, pattern)
-    local ok, name = pcall(function() return a.name end)
-    return ok and Readable(name, "string") and name:lower():find(pattern:lower(), 1, true) == 1
+-- Aura fields may be secret or unreadable in combat: read them through pcall(Field, aura, key).
+local function Field(aura, key) return aura and aura[key] end
+-- Only readable names can be matched. prefix is lower case.
+local function Matches(a, prefix)
+    local ok, name = pcall(Field, a, "name")
+    return ok and Readable(name, "string") and name:lower():find(prefix, 1, true) == 1
 end
 
--- One look for every bar: textured blue for time remaining, dark for time gone.
--- inverted: the bar fills as time passes, so draw the blue underneath and the dark part on top.
-local BAR_TEXTURE, BLUE = "Interface/TargetingFrame/UI-StatusBar", { 0.2, 0.5, 0.9 }
+-- inverted: the bar fills as time passes, so the appearance swaps the fill and background colours.
 local function StyleBar(b, inverted)
     b.inverted = inverted
     b.bar:SetReverseFill(inverted)
-    if ns.ApplyBuffAppearance then ns.ApplyBuffAppearance(b, inverted); return end
-    if inverted then
-        b.bar:SetStatusBarColor(0, 0, 0, 0.75)
-        b.bar.bg:SetTexture(BAR_TEXTURE)
-        b.bar.bg:SetVertexColor(BLUE[1], BLUE[2], BLUE[3], 1)
-    else
-        b.bar:SetStatusBarColor(BLUE[1], BLUE[2], BLUE[3])
-        b.bar.bg:SetColorTexture(0, 0, 0, 0.6)
-        b.bar.bg:SetVertexColor(1, 1, 1, 1)
-    end
+    Appearance.ApplyBuff(b, inverted)
 end
 
 -- Frames are pooled by index, but remembered aura/timer state belongs to the configured entry.
@@ -114,18 +110,17 @@ end
 
 -- Drive a bar from an aura instance. Uses the client's duration objects so secret timings still animate.
 local function ApplyAura(b, a, durationObject)
+    local okD, d = pcall(Field, a, "duration")
+    local okE, e = pcall(Field, a, "expirationTime")
     -- an aura the game still lists but whose time is up counts as gone
-    if a then
-        local ok, x, dur = pcall(function() return a.expirationTime, a.duration end)
-        if ok and Readable(x, "number") and Readable(dur, "number") and dur > 0 and x <= GetTime() then a = nil end
+    if a and okD and okE and Readable(d, "number") and Readable(e, "number") and d > 0 and e <= GetTime() then
+        a, d, e = nil, nil, nil
     end
     b.aura = a
     b.synthetic = nil
     b.nextTimerCheck = nil
     if not a then b.lastTimeText = nil end
     b.auraID = a and a.auraInstanceID
-    local okD, d = pcall(function() return a and a.duration end)
-    local okE, e = pcall(function() return a and a.expirationTime end)
     b.readableDuration = okD and Readable(d, "number") and d or nil
     b.readableExpiration = okE and Readable(e, "number") and e or nil
     if okD and Readable(d, "number") and d > 0 then b.lastDuration = d end
@@ -139,9 +134,9 @@ local function ApplyAura(b, a, durationObject)
         b.bar:SetMinMaxValues(0, 1); b.bar:SetValue(0); b.time:SetText(""); b.cd:Clear()
         return
     end
-    local okIcon, icon = pcall(function() return a.icon end)
+    local okIcon, icon = pcall(Field, a, "icon")
     if okIcon and icon then b.icon:SetTexture(icon) end
-    local okName, name = pcall(function() return a.name end)
+    local okName, name = pcall(Field, a, "name")
     b.name:SetText(okName and type(name) == "string" and name or "")
     local mode
     if durationObject and b.bar.SetTimerDuration then mode = SetTimer(b.bar, durationObject) end
@@ -153,7 +148,7 @@ end
 local function AuraID(aura) return aura and aura.auraInstanceID end
 local function RefreshAura(b, aura, durations)
     local ok, id = pcall(AuraID, aura)
-    local duration = ok and State.AuraDuration("player", id, durations)
+    local duration = ok and Collection.AuraDuration("player", id, durations)
     ApplyAura(b, aura, duration)
 end
 
@@ -190,9 +185,10 @@ end
 local function ApplyAuraDelta(b, name, delta)
     if Readable(b.auraID, "number") and delta.removed[b.auraID] then ApplyAura(b, nil) end
     delta.durations = delta.durations or {}
-    for _, aura in ipairs(delta.added) do if Matches(aura, name) then RefreshAura(b, aura, delta.durations) end end
+    local prefix = name:lower()
+    for _, aura in ipairs(delta.added) do if Matches(aura, prefix) then RefreshAura(b, aura, delta.durations) end end
     if Readable(b.auraID, "number") and delta.updated[b.auraID] then
-        local ok, aura = State.AuraInstance(delta, b.auraID)
+        local ok, aura = Collection.AuraInstance(delta, b.auraID)
         if ok then
             -- A refresh invalidates the old end time; an unreadable query keeps the last known state.
             if aura then b.endsAt = nil end
@@ -201,20 +197,20 @@ local function ApplyAuraDelta(b, name, delta)
     end
 end
 local function CollectBuffs(updateInfo)
-    local snapshot, delta, durations = nil, State.AuraDelta(updateInfo), {}
+    local snapshot, delta, durations = nil, Collection.AuraDelta(updateInfo), {}
     for i, name in ipairs(DB.buff.spells) do
         local b = BuffBar(i)
         local changed = ResetBuffBar(b, name)
-        if b.infoRevision ~= State.spellRevision then
-            b.entryInfo, b.infoRevision = State.Spell(name), State.spellRevision
+        if b.infoRevision ~= Collection.spellRevision then
+            b.entryInfo, b.infoRevision = Collection.Spell(name), Collection.spellRevision
         end
         local wasActive = b.aura ~= nil
         local readableID = type(b.auraID) == "nil" or Readable(b.auraID, "number")
         local handled = not changed and delta ~= nil and readableID
         if handled then ApplyAuraDelta(b, name, delta) end
         if not handled then
-            snapshot = snapshot or State.Auras("player")
-            local a, unknown = State.FindBuff(snapshot, name)
+            snapshot = snapshot or Collection.Auras("player")
+            local a, unknown = Collection.FindBuff(snapshot, name)
             local keep = false
             if not a and unknown and b.auraID then
                 -- scan is blind in combat; ask about the instance we already track (nil = gone, error = keep as is)
@@ -233,7 +229,7 @@ local function CollectBuffs(updateInfo)
         if changed or wasActive ~= (b.aura ~= nil) then buffLayoutDirty = true end
     end
 end
-local function UpdateBuffs(updateInfo, renderOnly)
+local function UpdateBuffs(renderOnly, updateInfo)
     if not buffRoot then return end
     local c, wasVisible = DB.buff, buffRoot:IsShown()
     -- Reset existing assignments even while hidden or disabled; never create hidden frames.
@@ -298,13 +294,13 @@ local function BuffOnUpdate()
     for _, b in ipairs(buffRoot.items) do
         local a = b.aura
         if b:IsShown() and b.synthetic then
-            local left = b.synthetic.start + b.synthetic.duration - GetTime()
+            local left = b.synthetic.start + b.synthetic.duration - now
             b.bar:SetMinMaxValues(0, b.synthetic.duration); b.bar:SetValue(math.max(0, left))
             if updateText then TimeText(b, left) end
         elseif b:IsShown() and a then
             local dur, exp = b.readableDuration, b.readableExpiration
             if dur and exp and dur > 0 then
-                local left = exp - GetTime()
+                local left = exp - now
                 if not b.timerObject then b.bar:SetMinMaxValues(0, dur); b.bar:SetValue(left) end
                 if updateText then TimeText(b, left) end
             elseif updateText and DB.buff.showTime and b.lastTimeText ~= "" then
@@ -330,7 +326,7 @@ end
 -- A successful cast is visible even in combat. Refresh the matching bar from it; if the client hides the
 -- aura, run a synthetic timer from the last known duration so the bar still resets on recast.
 local function OnCast(spellID)
-    local info = Readable(spellID, "number") and State.Spell(spellID)
+    local info = Readable(spellID, "number") and Collection.Spell(spellID)
     if not info or not Readable(info.name, "string") or not buffRoot or not DB.buff.enabled or not IsOwnSpell(spellID) then return end
     local handled, visible, durations = false, BuffVisible(DB.buff), {}
     local auraOK, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, spellID)
@@ -363,12 +359,12 @@ function Buffs.ApplyConfiguration(effects)
     if effects.data then buffDataDirty = true; wipe(hiddenCasts) end
     if effects.layout or effects.visibility or effects.data then buffLayoutDirty = true end
     if effects.appearance then buffAppearanceDirty = true end
-    UpdateBuffs(nil, not effects.data)
+    UpdateBuffs(not effects.data)
 end
 
 function Buffs.InvalidateLayout() buffLayoutDirty = true end
 function Buffs.Root() return buffRoot end
 Buffs.Update = UpdateBuffs
 Buffs.OnCast = OnCast
-Buffs.Bar = BuffBar
+Buffs.NewBar = NewBar
 Buffs.StyleBar = StyleBar

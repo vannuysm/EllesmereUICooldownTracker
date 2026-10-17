@@ -11,6 +11,10 @@ local buffRoot
 local SizeBuffRoot, PositionBuffBar = Frames.SizeBars, Frames.PositionBar
 local IsOwnSpell = Collection.IsOwnSpell
 
+-- Present in the live API (LuaDurationObjectAPIDocumentation) but missing from the bundled annotations.
+---@class DurationObject
+---@field IsActive fun(self: DurationObject, modifier?: Enum.DurationTimeModifier): boolean
+
 local function BuffEditing()
     return ns.Kit.editMode or (ns.euiBuffUnlock and not InCombatLockdown())
 end
@@ -154,7 +158,8 @@ end
 
 local buffLayoutDirty, buffDataDirty = true, true
 local buffAppearanceDirty = true
-local hiddenCasts, SyntheticAura = {}, nil
+local hiddenCasts = {}
+local SyntheticAura
 local function RenderBuffs()
     local c, shown = DB.buff, 0
     SizeBuffRoot(buffRoot, c, #c.spells)
@@ -339,7 +344,7 @@ local function OnCast(spellID)
                 buffDataDirty = true
             else
                 b = BuffBar(i); ResetBuffBar(b, name)
-                local applied = auraOK and aura and pcall(RefreshAura, b, aura, durations)
+                local applied = auraOK and aura ~= nil and pcall(RefreshAura, b, aura, durations)
                 if not applied and duration then SyntheticAura(b, info, GetTime(), duration); applied = true end
                 handled = handled or applied
             end

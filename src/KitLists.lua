@@ -61,45 +61,46 @@ function Page:Icons(list, opts)
         t.label:SetJustifyH("CENTER")
         t:RegisterForClicks("LeftButtonUp", "RightButtonUp")
         t:RegisterForDrag("LeftButton")
-        t:SetScript("OnEnter", function(self)
-            if self.add then
-                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        t:SetScript("OnEnter", function(tile)
+            if tile.add then
+                GameTooltip:SetOwner(tile, "ANCHOR_RIGHT")
+                ---@diagnostic disable-next-line: missing-parameter -- the API annotation wrongly requires the colors
                 GameTooltip:SetText("Add")
                 GameTooltip:AddLine("Search your spellbook" .. ((opts.sources and opts.sources[2]) and " and bags" or "") .. ", or drop a spell or item here.", nil, nil, nil, true)
                 GameTooltip:Show()
                 return
             end
-            local name = list()[self.index]
+            local name = list()[tile.index]
             local r = opts.resolve(name)
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetOwner(tile, "ANCHOR_RIGHT")
             GameTooltip:SetText(name, 1, 1, 1)
             if r.tag and r.tag ~= "" then GameTooltip:AddLine(r.tag, nil, nil, nil, true) end
             GameTooltip:AddLine("Drag to move  ·  Right-click to remove", 0.6, 0.6, 0.6)
             GameTooltip:Show()
         end)
         t:SetScript("OnLeave", GameTooltip_Hide)
-        t:SetScript("OnClick", function(self, button)
-            if Dropped(self.add and nil or self.index) then return end
-            if self.add then Search(self) return end
+        t:SetScript("OnClick", function(tile, button)
+            if Dropped(tile.add and nil or tile.index) then return end
+            if tile.add then Search(tile) return end
             if button == "RightButton" then
-                table.remove(list(), self.index)
+                table.remove(list(), tile.index)
                 GameTooltip_Hide()
                 Changed()
             end
         end)
-        t:SetScript("OnReceiveDrag", function(self) Dropped(not self.add and self.index or nil) end)
-        t:SetScript("OnDragStart", function(self)
-            if self.add then return end
-            dragging = self.index
-            self:SetAlpha(0.35)
+        t:SetScript("OnReceiveDrag", function(tile) Dropped(not tile.add and tile.index or nil) end)
+        t:SetScript("OnDragStart", function(tile)
+            if tile.add then return end
+            dragging = tile.index
+            tile:SetAlpha(0.35)
         end)
-        t:SetScript("OnDragStop", function(self)
-            self:SetAlpha(1)
+        t:SetScript("OnDragStop", function(tile)
+            tile:SetAlpha(1)
             local from = dragging
             dragging = nil
             if not from then return end
             local to
-            for j, other in ipairs(tiles) do
+            for _, other in ipairs(tiles) do
                 if other:IsShown() and other:IsMouseOver() then to = other.add and #list() or other.index; break end
             end
             if to and to ~= from then
@@ -211,7 +212,7 @@ function Page:IconGroups(list, opts)
     local area = CreateFrame("Frame", nil, b)
     area:SetPoint("TOPLEFT", PAD, -top)
     area:SetPoint("BOTTOMRIGHT", -PAD, 0)
-    local chips, icons = {}, {}
+    local chips = {}
     local addBtn
     local Update
     local function Changed() if opts.onChange then opts.onChange() end; Update() end
@@ -230,8 +231,8 @@ function Page:IconGroups(list, opts)
         c.add.text = c.add:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
         c.add.text:SetPoint("CENTER")
         c.add.text:SetText("+")
-        c.add:SetScript("OnClick", function(self)
-            Kit.OpenSearch(self, { sources = { "spells" }, exists = Exists, onPick = function(name)
+        c.add:SetScript("OnClick", function(button)
+            Kit.OpenSearch(button, { sources = { "spells" }, exists = Exists, onPick = function(name)
                 list()[c.index] = list()[c.index] .. " / " .. name
                 Changed()
             end })
@@ -251,17 +252,17 @@ function Page:IconGroups(list, opts)
         ib.tex = Kit.Icon(ib, 24)
         ib.tex:SetAllPoints()
         ib:RegisterForClicks("RightButtonUp")
-        ib:SetScript("OnEnter", function(self)
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:SetText(self.name, 1, 1, 1)
-            if not self.learned then GameTooltip:AddLine("Not learned yet", 0.6, 0.6, 0.6) end
+        ib:SetScript("OnEnter", function(button)
+            GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
+            GameTooltip:SetText(button.name, 1, 1, 1)
+            if not button.learned then GameTooltip:AddLine("Not learned yet", 0.6, 0.6, 0.6) end
             GameTooltip:AddLine("Right-click to remove", 0.6, 0.6, 0.6)
             GameTooltip:Show()
         end)
         ib:SetScript("OnLeave", GameTooltip_Hide)
-        ib:SetScript("OnClick", function(self)
+        ib:SetScript("OnClick", function(button)
             local names = Split(list()[c.index])
-            table.remove(names, self.j)
+            table.remove(names, button.j)
             if #names == 0 then table.remove(list(), c.index) else list()[c.index] = table.concat(names, " / ") end
             GameTooltip_Hide()
             Changed()
@@ -307,8 +308,8 @@ function Page:IconGroups(list, opts)
             addBtn = Make("Button", area, "UIPanelButtonTemplate")
             addBtn:SetSize(80, 24)
             addBtn:SetText("+ Add")
-            addBtn:SetScript("OnClick", function(self)
-                Kit.OpenSearch(self, { sources = { "spells" }, exists = Exists, onPick = function(name)
+            addBtn:SetScript("OnClick", function(button)
+                Kit.OpenSearch(button, { sources = { "spells" }, exists = Exists, onPick = function(name)
                     table.insert(list(), name)
                     Changed()
                 end })

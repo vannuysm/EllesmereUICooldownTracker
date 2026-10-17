@@ -2,6 +2,11 @@
 local _, ns = ...
 local Collection = { spellRevision = 0, bagRevision = 0 }
 ns.Collection = Collection
+
+-- Present in the live API (SpellSharedDocumentation) but missing from the bundled annotations.
+---@class SpellCooldownInfo
+---@field isActive boolean
+
 local spells, matches, auras, bags = {}, {}, {}, nil
 
 function Collection.Readable(value, kind)
@@ -154,8 +159,8 @@ end
 function Collection.Cooldowns(entries, kind, ids)
     for _, entry in ipairs(entries) do
         if entry.spell and (not kind or kind == "spell") and (not ids or ids[entry.spell.spellID]) then
-            local ok, cooldown = pcall(C_Spell.GetSpellCooldown, entry.spell.spellID)
-            cooldown = ok and cooldown or nil
+            local ok, info = pcall(C_Spell.GetSpellCooldown, entry.spell.spellID)
+            local cooldown = ok and info or nil
             entry.cooldown = cooldown
             entry.updated, entry.durationObject = true, nil
             local active = cooldown and (not Plain(cooldown.isActive, "boolean") or cooldown.isActive)
@@ -183,6 +188,9 @@ local function SpellBookKnows(...)
     local ok, known = pcall(C_SpellBook.IsSpellKnown, ...)
     if ok and Plain(known, "boolean") then return known end
 end
+-- Fallback for clients without C_SpellBook.IsSpellKnown; retail deprecates it, so it is used only from here.
+---@diagnostic disable-next-line: deprecated
+local IsPlayerSpell = IsPlayerSpell
 local function PlayerSpellKnown(spellID)
     local ok, known = pcall(IsPlayerSpell, spellID)
     return ok and Plain(known, "boolean") and known

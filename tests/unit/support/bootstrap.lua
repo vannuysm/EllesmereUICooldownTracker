@@ -16,7 +16,7 @@ return function(standalone)
             return true
         end
         EllesmereUI.Widgets = setmetatable({}, { __index = function(_, kind)
-            return function(_, parent, label, y, ...)
+            return function(_, parent, label, _, ...)
                 widgets[label] = { kind = kind, args = { ... } }
                 return CreateFrame("Frame", nil, parent), 30
             end

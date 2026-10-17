@@ -1,5 +1,5 @@
 return function(ctx)
-local M, ns = ctx.mocks, ctx.ns
+local ns = ctx.ns
 local V, Kit = ns.ProfileValidation, ns.Kit
 local function Equal(a, b) assert(Kit.Encode(a) == Kit.Encode(b), "data differs") end
 local function Copy(value)

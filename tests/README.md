@@ -32,6 +32,15 @@ uv run --locked pytest -k unreadable
 uv run --locked pytest --junitxml=test-results/all.xml
 ```
 
+## Lua diagnostics
+
+Open `EllesmereUICooldownTracker.code-workspace` in VS Code rather than the folder.
+It makes `src/` and `tests/` sibling workspace folders, so the Lua language server
+checks the addon with `src/.luarc.json` (WoW API only) and the tests with
+`tests/.luarc.json` (standard Lua 5.1, no WoW API). Neither folder sees the other's
+globals, so mocks cannot shape the types inferred for `src/`. `.pkgmeta` keeps
+`src/.luarc.json` out of releases.
+
 ## Organization
 
 Automated tests are split between `unit` and `performance`. Manual testing docs

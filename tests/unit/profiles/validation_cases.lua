@@ -1,8 +1,8 @@
 local ctx = ...
 local M, ns, Test = ctx.mocks, ctx.ns, ctx.Test
 local H = dofile(ctx.path("tests/unit/profiles/support.lua"))(ctx)
-local V, Kit, Equal, Copy, Read = H.V, H.Kit, H.Equal, H.Copy, H.Read
-local ErrorContains, Bad, BadText = H.ErrorContains, H.Bad, H.BadText
+local V, Kit = H.V, H.Kit
+local ErrorContains, Bad = H.ErrorContains, H.Bad
 
 Test("every explicit empty list survives normalization, application and late saved-data initialization", function()
     local empty = { cd = { spells = {} }, buff = { spells = {} }, remind = { self = {}, ally = {} }, ranks = { keep = {} } }

@@ -1,8 +1,7 @@
 local ctx = ...
 local M, ns, Test = ctx.mocks, ctx.ns, ctx.Test
-local modules, widgets = ctx.modules, ctx.widgets
 local H = dofile(ctx.path("tests/unit/trackers/support.lua"))(ctx)
-local Empty, Spell, Prepare, Aura, Calls = H.Empty, H.Spell, H.Prepare, H.Aura, H.Calls
+local Prepare = H.Prepare
 
 Test("rank application keeps markers, keep lists and combat deferral consistent", function()
     Prepare(); M.spells, M.oldRank, M.combat = true, true, true

@@ -1,13 +1,13 @@
 local ctx = ...
 local M, ns, Test = ctx.mocks, ctx.ns, ctx.Test
-local modules, widgets = ctx.modules, ctx.widgets
+local modules = ctx.modules
 local H = dofile(ctx.path("tests/unit/trackers/support.lua"))(ctx)
-local Empty, Spell, Prepare, Aura, Calls = H.Empty, H.Spell, H.Prepare, H.Aura, H.Calls
+local Spell, Prepare, Calls = H.Spell, H.Prepare, H.Calls
 
 local function MockTrackingEditor()
     EllesmereUI.MakeFont = function(parent) return parent:CreateFontString() end
     EllesmereUI.MakeBorder = function() end
-    EllesmereUI.MakeStyledButton = function(button, text, size, colors, onClick)
+    EllesmereUI.MakeStyledButton = function(button, text, _, _, onClick)
         local label = button:CreateFontString()
         label:SetText(text)
         button:SetScript("OnClick", onClick)

@@ -7,7 +7,6 @@ local Empty, Spell, Prepare, Aura, Calls = H.Empty, H.Spell, H.Prepare, H.Aura, 
 Test("settings entry points share application and preserve section references", function()
     Empty()
     local db, section = EUICT_DBC, EUICT_DBC.cd
-    local card = ns.SettingsUI.pages.cd.blocks[3]
     -- Find the actual standalone slider setter through its callback upvalues.
     local standalone
     for _, object in ipairs(M.objects) do
@@ -158,22 +157,22 @@ Test("buff and icon borders inherit Action Bar settings and return to custom set
     EllesmereUI.Lite = { GetAddon = function() return { db = { profile = { bars = { MainBar = source } } } } end }
     local stage = CreateFrame("Frame"); stage.note = stage:CreateFontString()
     ns.TrackerPreview.Remind(stage, "normal")
-    local widgets = { EUICT_CD.items[1], EUICT_Buff.items[1], stage.root.items[1] }
+    local frames = { EUICT_CD.items[1], EUICT_Buff.items[1], stage.root.items[1] }
     local stylers = { ns.TrackerAppearance.ApplyCooldown, ns.TrackerAppearance.ApplyBuff, ns.TrackerAppearance.ApplyReminder }
     for i, tracker in ipairs({ "cd", "buff", "remind" }) do
         ns.Configuration.Set(tracker, "inheritBar", "MainBar")
-        stylers[i](widgets[i], false)
-        local border = widgets[i].buffBorder or widgets[i].euictIconBorder
+        stylers[i](frames[i], false)
+        local border = frames[i].buffBorder or frames[i].euictIconBorder
         local style = assert(applied[border])
         assert(style[1] == 3 and style[2] == 0.2 and style[5] == 0.8 and style[6] == "test-border")
         assert(style[14] == 2.5, "inherited pixel thickness reaches the border API")
         source.borderEnabled = false
-        stylers[i](widgets[i], false); assert(not border:IsShown())
+        stylers[i](frames[i], false); assert(not border:IsShown())
         source.borderEnabled = true
         ns.Configuration.Set(tracker, "borderEnabled", true)
         ns.Configuration.Set(tracker, "borderSize", 4)
         ns.Configuration.Set(tracker, "inheritBar", "none")
-        stylers[i](widgets[i], false)
+        stylers[i](frames[i], false)
         assert(applied[border][1] == 4 and applied[border][6] == "solid")
     end
 end)
@@ -192,6 +191,7 @@ Test("both reset entry points return to defaults even while a profile is active"
         ns.Configuration.Set("cd", "size", 50)
         assert(ns.Profiles.Save("Raid " .. i))
         local reloads = 0
+        ---@type fun()?
         ReloadUI = function() reloads = reloads + 1 end
         reset()
         assert(reloads == 1 and next(EUICT_DBC) == nil)

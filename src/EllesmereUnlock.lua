@@ -60,7 +60,7 @@ if EUI.RegisterUnlockElements and EUI.MakeUnlockElement then
                 return not c or not c.enabled
             end,
             noAnchorTo = true, noAnchorTarget = true,
-            savePos = function(_, point, relPoint, x, y) Frames.SavePosition(tracker, x, y) end,
+            savePos = function(_, _, _, x, y) Frames.SavePosition(tracker, x, y) end,
             loadPos = function()
                 local c = TrackerConfig(tracker)
                 if c then return { point = "CENTER", relPoint = "CENTER", x = c.x, y = c.y } end

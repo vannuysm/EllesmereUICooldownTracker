@@ -1,8 +1,7 @@
 local ctx = ...
 local M, ns, Test = ctx.mocks, ctx.ns, ctx.Test
-local modules, widgets = ctx.modules, ctx.widgets
 local H = dofile(ctx.path("tests/unit/trackers/support.lua"))(ctx)
-local Empty, Spell, Prepare, Aura, Calls = H.Empty, H.Spell, H.Prepare, H.Aura, H.Calls
+local Spell, Prepare, Aura, Calls = H.Spell, H.Prepare, H.Aura, H.Calls
 
 Test("buffs share a full aura scan and preserve incremental prefix updates", function()
     Prepare(); Spell("Seal One", 501); Spell("Second", 502)

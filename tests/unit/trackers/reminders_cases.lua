@@ -1,8 +1,7 @@
 local ctx = ...
 local M, ns, Test = ctx.mocks, ctx.ns, ctx.Test
-local modules, widgets = ctx.modules, ctx.widgets
 local H = dofile(ctx.path("tests/unit/trackers/support.lua"))(ctx)
-local Empty, Spell, Prepare, Aura, Calls = H.Empty, H.Spell, H.Prepare, H.Aura, H.Calls
+local Spell, Prepare, Aura, Calls = H.Spell, H.Prepare, H.Aura, H.Calls
 
 Test("reminders share unit scans and preserve alternatives, ownership and ordering", function()
     Prepare(); Spell("Armor", 1001); Spell("Skin", 1002); Spell("Mark", 1003); Spell("Wisdom", 1004); Spell("Might", 1005)

@@ -33,9 +33,9 @@ function Page:ClassPicks(opts)
         card.any = card.slot:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
         card.any:SetPoint("CENTER")
         card.any:SetText("Any")
-        card.slot:SetScript("OnClick", function(self)
+        card.slot:SetScript("OnClick", function(slot)
             if not (MenuUtil and MenuUtil.CreateContextMenu) then return end
-            MenuUtil.CreateContextMenu(self, function(_, root)
+            MenuUtil.CreateContextMenu(slot, function(_, root)
                 for _, o in ipairs(opts.choices()) do
                     local info = o[1] ~= "" and Kit.SpellByName(o[1])
                     local text = (info and ("|T" .. info.iconID .. ":16|t ") or "") .. o[2]

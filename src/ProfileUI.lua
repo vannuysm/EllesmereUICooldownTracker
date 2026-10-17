@@ -5,7 +5,7 @@ if not (EUI and EUI.RegisterPlugin) then return end
 local P = ns.Profiles
 local ProfileUI = {}
 ns.ProfileUI = ProfileUI
-local state = { importRaw = "", exportRaw = "", exportSource = 0 }
+local state = { importRaw = "", exportRaw = "", exportSource = 0 } ---@type table<string, any>
 local dialog, menu
 local function Refresh() P.LibraryChanged() end
 local function Font(parent, size, text)
@@ -61,7 +61,7 @@ local function ShowDialog(title, message, buttons, initialName)
         EUI.MakeBorder(input, 1, 1, 1, 0.2, EUI.PanelPP)
         local bg = input:CreateTexture(nil, "BACKGROUND"); bg:SetAllPoints(); bg:SetColorTexture(0, 0, 0, 0.5)
         input:SetScript("OnEscapePressed", CloseDialog)
-        input:SetScript("OnEnterPressed", function() if dialog.accept then dialog.accept(input:GetText()) end end)
+        input:SetScript("OnEnterPressed", function() if dialog.accept then dialog.accept() end end)
         dialog.input = input
         dialog.error = Font(box, 12)
         dialog.error:SetPoint("TOPLEFT", 16, -164); dialog.error:SetPoint("TOPRIGHT", -16, -164)
@@ -232,7 +232,7 @@ function ProfileUI.BuildPage(pageName, parent, y)
             elseif userInput then self:SetText(state[field]) end
         end)
         y = y - height - 8
-        return input
+        return input, scroll
     end
     if pageName == "Profiles" then
         Section("SAVED PROFILES")
@@ -269,7 +269,7 @@ function ProfileUI.BuildPage(pageName, parent, y)
         if state.exportSource ~= 0 and ns.Database.ProfileStore()[state.exportSource] == nil then
             state.exportSource, state.exportRaw, state.exportError = 0, "", nil
         end
-        local output, exportFeedback
+        local output, outputScroll, exportFeedback
         local exportHelp = "Select a profile, then press Ctrl+C to copy. Click the text to select it again.\n"
             .. "Current settings exports this character's setup. Choose a saved profile to export its shared setup."
         local function UpdateExportFeedback()
@@ -287,7 +287,7 @@ function ProfileUI.BuildPage(pageName, parent, y)
             state.exportError = not raw and ("Could not export: " .. err) or nil
             if output then
                 output:SetText(state.exportRaw)
-                output:GetParent():SetVerticalScroll(0)
+                outputScroll:SetVerticalScroll(0)
                 if raw and selectText then output:SetFocus(); output:HighlightText()
                 elseif not raw then output:ClearFocus() end
             end
@@ -297,7 +297,7 @@ function ProfileUI.BuildPage(pageName, parent, y)
         local _, h = W:Dropdown(parent, "Profile", y, values, function() return state.exportSource end,
             function(source) Export(source, true) end, order)
         y = y - h
-        output = Input("exportRaw", 100, false)
+        output, outputScroll = Input("exportRaw", 100, false)
         exportFeedback = Note("", 60)
         UpdateExportFeedback()
         Section("IMPORT")

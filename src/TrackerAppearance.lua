@@ -41,7 +41,7 @@ end
 
 -- Buff frames and icon frames use the same Action Bar border settings.
 local function ApplyBorder(frame, config, source)
-    local color, size, exact = config.borderColor, config.borderSize
+    local color, size, exact = config.borderColor, config.borderSize, nil
     if source then
         color = source.borderColor or color
         if source.borderClassColor then

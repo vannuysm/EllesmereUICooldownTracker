@@ -16,7 +16,7 @@ table.insert(ForeverUI.elements, { key = "ellesmere:euict", label = "Ellesmere c
 ForeverUI.revision = (ForeverUI.revision or 0) + 1
 
 -- Coalesce bursts at the next frame. Unknown/legacy cooldown payloads request a full state refresh.
-local pending = { ids = {} }
+local pending = { ids = {} } ---@type table<string, any>
 local queued = false
 local function FlushUpdates()
     queued = false

@@ -97,7 +97,7 @@ function UnitIsPlayer(unit) return UnitExists(unit) end
 function UnitIsConnected() return true end
 function UnitIsFriend() return M.friendly or false end
 function UnitIsUnit(a, b) return a == b or (M.sameUnits and M.sameUnits[a] == b) or false end
-function UnitInParty(unit) return M.targetInParty or false end
+function UnitInParty(_) return M.targetInParty or false end
 function UnitName(unit) return unit end
 function GetRealmName() return "TestRealm" end
 function IsPlayerSpell(id) return M.known[id] or M.spells or false end
@@ -146,7 +146,7 @@ C_Container = {
     GetContainerNumSlots = function(bag) M.Count("bagSlots"); return #(M.bags[bag] or {}) end,
     GetContainerItemInfo = function(bag, slot) M.Count("bagItem"); return M.bags[bag][slot] end,
 }
-C_Item = { GetItemCooldown = function(id) M.Count("itemCooldown"); return 0, 0 end }
+C_Item = { GetItemCooldown = function(_) M.Count("itemCooldown"); return 0, 0 end }
 Enum = { SpellBookSpellBank = { Pet = 1 } }
 C_SpellBook = { IsSpellKnown = function(id, bank)
     M.Count("known")
@@ -164,7 +164,7 @@ C_Spell = {
     GetSpellName = function(id) if M.spells and (id == 1 or id == 2) then return "Holy Light" end end,
     GetSpellSubtext = function(id) return id == 1 and "Rank 1" or "Rank 2" end,
     GetSpellCooldown = function(id) M.Count("cooldown"); return M.cooldowns and M.cooldowns[id] or { isActive = false, isOnGCD = false } end,
-    IsSpellInRange = function(id, unit) return not (M.outOfRange and M.outOfRange[unit]) end,
+    IsSpellInRange = function(_, unit) return not (M.outOfRange and M.outOfRange[unit]) end,
 }
 EllesmereUI = {
     MakeFont = function(parent) return parent:CreateFontString() end,

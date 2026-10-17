@@ -87,8 +87,9 @@ function Kit.Decode(s)
             local nx = s:sub(pos + 1, pos + 1)
             local d = s:match("^%d%d?%d?", pos + 1)
             if d then
-                if tonumber(d) > 255 then error("invalid character escape", 0) end
-                out[#out + 1] = string.char(tonumber(d)); pos = pos + 1 + #d
+                local code = tonumber(d) or 256
+                if code > 255 then error("invalid character escape", 0) end
+                out[#out + 1] = string.char(code); pos = pos + 1 + #d
             else out[#out + 1] = ESCAPES[nx] or nx; pos = pos + 2 end
         end
         error("unfinished text", 0)

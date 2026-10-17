@@ -79,10 +79,10 @@ end
 
 -- Forever gives characters a first and a last name: UnitName returns the surname where retail puts a realm.
 local function UnitLabel(u)
-    local ok, name, last = pcall(UnitName, u)
-    name = ok and Readable(name, "string") and name ~= "" and name or nil
+    local ok, first, surname = pcall(UnitName, u)
+    local name = ok and Readable(first, "string") and first ~= "" and first or nil
     if not name then return u == "target" and TARGET or "party member" end
-    last = Readable(last, "string") and last ~= "" and last or nil
+    local last = Readable(surname, "string") and surname ~= "" and surname or nil
     local realm = GetRealmName and GetRealmName()
     realm = Readable(realm, "string") and realm or ""
     if last and last ~= realm and last ~= realm:gsub("%s", "") then return name .. " " .. last end
@@ -108,7 +108,6 @@ end
 local reminderLines = {}
 local function CollectReminders()
     local c = DB.remind
-    if not remindRoot then return end
     local lines = {}
     if c.enabled and not InCombatLockdown() and not UnitIsDeadOrGhost("player") and not UnitOnTaxi("player") then
         for _, entry in ipairs(c.self) do

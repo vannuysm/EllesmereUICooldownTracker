@@ -216,6 +216,7 @@ profilePage:Profiles({ tag = "FCT1", store = Database.ProfileStore, snapshot = P
     badge = function(data)
         local class = type(data) == "table" and data._class
         if not Validation.IsClass(class) then return nil end
+        ---@cast class -false
         local name = LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[class] or class
         local mine = class == Database.PlayerClass()
         return { atlas = "classicon-" .. class:lower(), text = mine and name or (name .. " profile  ·  another class") }

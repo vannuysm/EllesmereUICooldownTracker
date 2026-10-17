@@ -360,7 +360,7 @@ Test("standalone actions synchronize active identity and integrated library cach
     assert(P.Active() == "Standalone" and EUICT_DB.profiles.Standalone.cd.size == 60)
 end)
 Test("two registered tabs and slash shortcut open the library and dialogs close on module leave", function()
-    local module, opened = ctx.modules.Profiles
+    local module, opened = ctx.modules.Profiles, {}
     assert(module.pages[1] == "Profiles" and module.pages[2] == "Import / Export")
     EllesmereUI.OpenPlugin = function(...) opened = { ... }; return true end
     SlashCmdList.EUICT("profiles"); assert(opened[2] == "Profiles" and opened[3] == "Profiles")

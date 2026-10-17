@@ -8,6 +8,8 @@ ignore:
     - .gitignore
     - .pkgmeta
     - .gitattributes
+    - src/.luarc.json
+    - *.code-workspace
     - README.md
     - *.log
     - .github

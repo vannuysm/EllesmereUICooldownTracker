@@ -84,6 +84,7 @@ function Kit.CursorName()
     elseif kind == "item" then
         local okI, name = pcall(C_Item.GetItemNameByID, a)
         if okI and Plain(name, "string") then
+            ---@cast name string
             local okT, icon = pcall(C_Item.GetItemIconByID, a)
             if okT and icon then Kit.icons[name] = icon end
             return name

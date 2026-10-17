@@ -3,9 +3,11 @@ local _, ns = ...
 local EUI = EllesmereUI
 if not (EUI and EUI.RegisterPlugin) then return end
 local P = ns.Profiles
-local state = { importRaw = "", exportRaw = "", exportSource = 0 }
+local ProfileUI = {}
+ns.ProfileUI = ProfileUI
+local state = { importRaw = "", exportRaw = "", exportSource = 0 } ---@type table<string, any>
 local dialog, menu
-local function Refresh() ns.RefreshProfileSettings() end
+local function Refresh() P.LibraryChanged() end
 local function Font(parent, size, text)
     local label = EUI.MakeFont(parent, size, nil, 1, 1, 1, 0.9)
     label:SetText(text or "")
@@ -20,7 +22,7 @@ local function Button(parent, text, callback, width)
 end
 local function CloseDialog() if dialog then dialog:Hide() end end
 local function CloseMenu() if menu then menu:Hide() end end
-function ns.CloseProfileUI() CloseDialog(); CloseMenu() end
+function ProfileUI.Close() CloseDialog(); CloseMenu() end
 
 local function Overlay(name)
     local overlay = CreateFrame("Frame", name, UIParent)
@@ -59,7 +61,7 @@ local function ShowDialog(title, message, buttons, initialName)
         EUI.MakeBorder(input, 1, 1, 1, 0.2, EUI.PanelPP)
         local bg = input:CreateTexture(nil, "BACKGROUND"); bg:SetAllPoints(); bg:SetColorTexture(0, 0, 0, 0.5)
         input:SetScript("OnEscapePressed", CloseDialog)
-        input:SetScript("OnEnterPressed", function() if dialog.accept then dialog.accept(input:GetText()) end end)
+        input:SetScript("OnEnterPressed", function() if dialog.accept then dialog.accept() end end)
         dialog.input = input
         dialog.error = Font(box, 12)
         dialog.error:SetPoint("TOPLEFT", 16, -164); dialog.error:SetPoint("TOPRIGHT", -16, -164)
@@ -113,7 +115,7 @@ end
 local function ExportProfile(name)
     CloseMenu()
     state.exportSource, state.exportRaw, state.exportError = name, "", nil
-    ns.OpenProfileSettings("Import / Export")
+    ns.Ellesmere.Open("profiles", "Import / Export")
 end
 local function ShowMenu(anchor, name)
     if not menu then
@@ -154,7 +156,7 @@ local function ShowMenu(anchor, name)
     menu:Show()
 end
 
-function ns.UpdateProfileHeader()
+function ProfileUI.UpdateHeader()
     local banner = state.banner
     if not banner or not banner:IsShown() then return end
     local active = P.Active()
@@ -162,7 +164,7 @@ function ns.UpdateProfileHeader()
     banner.note:SetText("Settings changes automatically save to the active profile.")
 end
 
-function ns.BuildProfileHeader(frame)
+function ProfileUI.BuildHeader(frame)
     for _, preview in pairs(frame.euictPreviews or {}) do preview:Hide() end
     local banner = frame.euictProfileHeader
     if not banner then
@@ -177,11 +179,11 @@ function ns.BuildProfileHeader(frame)
     end
     state.banner = banner
     banner:Show()
-    ns.UpdateProfileHeader()
+    ProfileUI.UpdateHeader()
     return 108
 end
 
-function ns.BuildProfilePage(pageName, parent, y)
+function ProfileUI.BuildPage(pageName, parent, y)
     state.host = parent
     local pad, W = EUI.CONTENT_PAD or 45, EUI.Widgets
     local function Note(text, height)
@@ -230,7 +232,7 @@ function ns.BuildProfilePage(pageName, parent, y)
             elseif userInput then self:SetText(state[field]) end
         end)
         y = y - height - 8
-        return input
+        return input, scroll
     end
     if pageName == "Profiles" then
         Section("SAVED PROFILES")
@@ -247,7 +249,7 @@ function ns.BuildProfilePage(pageName, parent, y)
             use:SetAlpha(name == active and 0.4 or 1)
             local status = Font(row, 11, name == active and "Active" or "")
             status:SetPoint("RIGHT", use, "LEFT", -8, 0); status:SetWidth(64)
-            local data = ns.ProfileStore()[name]
+            local data = ns.Database.ProfileStore()[name]
             local class = type(data) == "table" and data._class
             local className = ns.ProfileValidation.IsClass(class) and (LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[class] or class) or ""
             local badge = Font(row, 11, className); badge:SetPoint("RIGHT", status, "LEFT", -8, 0); badge:SetWidth(86)
@@ -264,10 +266,10 @@ function ns.BuildProfilePage(pageName, parent, y)
         Section("EXPORT")
         local values, order = { [0] = "Current settings" }, { 0 }
         for _, name in ipairs(P.Names()) do values[name], order[#order + 1] = name, name end
-        if state.exportSource ~= 0 and ns.ProfileStore()[state.exportSource] == nil then
+        if state.exportSource ~= 0 and ns.Database.ProfileStore()[state.exportSource] == nil then
             state.exportSource, state.exportRaw, state.exportError = 0, "", nil
         end
-        local output, exportFeedback
+        local output, outputScroll, exportFeedback
         local exportHelp = "Select a profile, then press Ctrl+C to copy. Click the text to select it again.\n"
             .. "Current settings exports this character's setup. Choose a saved profile to export its shared setup."
         local function UpdateExportFeedback()
@@ -285,7 +287,7 @@ function ns.BuildProfilePage(pageName, parent, y)
             state.exportError = not raw and ("Could not export: " .. err) or nil
             if output then
                 output:SetText(state.exportRaw)
-                output:GetParent():SetVerticalScroll(0)
+                outputScroll:SetVerticalScroll(0)
                 if raw and selectText then output:SetFocus(); output:HighlightText()
                 elseif not raw then output:ClearFocus() end
             end
@@ -295,7 +297,7 @@ function ns.BuildProfilePage(pageName, parent, y)
         local _, h = W:Dropdown(parent, "Profile", y, values, function() return state.exportSource end,
             function(source) Export(source, true) end, order)
         y = y - h
-        output = Input("exportRaw", 100, false)
+        output, outputScroll = Input("exportRaw", 100, false)
         exportFeedback = Note("", 60)
         UpdateExportFeedback()
         Section("IMPORT")
@@ -321,7 +323,7 @@ function ns.BuildProfilePage(pageName, parent, y)
         end
         Buttons({ { "Preview import", function()
             local raw = input:GetText()
-            local candidate, err = ns.DecodeProfile(raw)
+            local candidate, err = ns.ProfileCodec.Decode(raw)
             if not candidate then
                 state.importError = "Could not import: " .. err
                 importFeedback:SetText(state.importError)
@@ -336,7 +338,7 @@ function ns.BuildProfilePage(pageName, parent, y)
         importFeedback = Note(state.importError or "", 46)
         importFeedback:SetTextColor(1, 0.5, 0.3)
         state.importFeedback = importFeedback
-        if state.lastImported and ns.ProfileStore()[state.lastImported] ~= nil then
+        if state.lastImported and ns.Database.ProfileStore()[state.lastImported] ~= nil then
             Note('Last imported: "' .. state.lastImported .. '".', 46)
             Buttons({ { "Use now", function() Use(state.lastImported) end } })
         end

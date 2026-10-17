@@ -1,5 +1,5 @@
 return function(ctx)
-local M, ns = ctx.mocks, ctx.ns
+local ns = ctx.ns
 local V, Kit = ns.ProfileValidation, ns.Kit
 local function Equal(a, b) assert(Kit.Encode(a) == Kit.Encode(b), "data differs") end
 local function Copy(value)
@@ -19,7 +19,7 @@ local function Bad(data, path)
     local settings, library, source = Kit.Encode(EUICT_DBC), Kit.Encode(EUICT_DB.profiles), Copy(data)
     local candidate, err = V.Validate(data)
     assert(candidate == nil); ErrorContains(err, path)
-    local ok; ok, err = ns.ApplyProfile(data)
+    local ok; ok, err = ns.Profiles.Apply(data)
     assert(not ok); ErrorContains(err, path)
     assert(Kit.Encode(EUICT_DBC) == settings, "failed application changed settings")
     assert(Kit.Encode(EUICT_DB.profiles) == library, "failed application changed library")
@@ -27,7 +27,7 @@ local function Bad(data, path)
 end
 local function BadText(raw, path)
     local settings, library = Kit.Encode(EUICT_DBC), Kit.Encode(EUICT_DB.profiles)
-    local candidate, err = ns.DecodeProfile(raw)
+    local candidate, err = ns.ProfileCodec.Decode(raw)
     assert(candidate == nil); ErrorContains(err, path)
     assert(Kit.Encode(EUICT_DBC) == settings and Kit.Encode(EUICT_DB.profiles) == library)
 end

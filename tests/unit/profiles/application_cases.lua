@@ -1,10 +1,9 @@
 local ctx = ...
 local M, ns, Test = ctx.mocks, ctx.ns, ctx.Test
 local H = dofile(ctx.path("tests/unit/profiles/support.lua"))(ctx)
-local V, Kit, Equal, Copy, Read = H.V, H.Kit, H.Equal, H.Copy, H.Read
-local ErrorContains, Bad, BadText = H.ErrorContains, H.Bad, H.BadText
+local V, Kit = H.V, H.Kit
 
-local profilePage = ns.settingsPages.profiles
+local profilePage = ns.SettingsUI.pages.profiles
 local libraryBlock, importBlock = profilePage.blocks[1], profilePage.blocks[2]
 local function HasText(root, fragment)
     for _, child in ipairs(root.children) do
@@ -53,24 +52,24 @@ Test("successful application updates locks, content, rank markers and page cache
     local layouts = db.editLayouts
     M.spells, M.oldRank = true, true
     ActionButton1 = CreateFrame("Button", "ActionButton1", UIParent); ActionButton1.action = 1
-    ns.settingsPages.cd.frame:Show()
-    local refreshes = 0; ns.settingsPages.cd:OnRefresh(function() refreshes = refreshes + 1 end)
+    ns.SettingsUI.pages.cd.frame:Show()
+    local refreshes = 0; ns.SettingsUI.pages.cd:OnRefresh(function() refreshes = refreshes + 1 end)
     local invalidations = M.invalidated.CooldownBar or 0
     local data = { cd = { spells = { "Holy Light" }, locked = false, visibility = "always", orientation = "vertical", growth = "up", size = 40 },
         buff = { spells = {}, locked = false }, remind = { self = {}, ally = {}, locked = false }, ranks = { enabled = true, auto = false } }
-    assert(ns.ApplyProfile(data))
+    assert(ns.Profiles.Apply(data))
     assert(#ns.Ranks.Outdated() == 1, "mock old action must resolve to an outdated rank")
     local badge = assert(ActionButton1.children[1]); assert(badge:IsShown())
     for _, key in ipairs({ "cd", "buff", "remind" }) do
-        local root = ns.TrackerRoot(key); assert(root:IsMouseEnabled() and root.bg:IsShown())
+        local root = ns.TrackerFrames.Root(key); assert(root:IsMouseEnabled() and root.bg:IsShown())
     end
     assert(EUICT_CD.items[1]:IsShown() and EUICT_CD.items[1].spellID == 2 and EUICT_CD:GetWidth() == 40)
     assert(refreshes > 0 and M.invalidated.CooldownBar == invalidations + 1 and M.invalidated.BuffBars and M.invalidated.Reminders and M.pageRefreshes > 0)
     data.cd.spells[1] = "changed by caller"; assert(db.cd.spells[1] == "Holy Light")
-    assert(ns.ApplyProfile({ cd = { spells = {}, locked = true }, buff = { locked = true }, remind = { locked = true }, ranks = { enabled = false } }))
+    assert(ns.Profiles.Apply({ cd = { spells = {}, locked = true }, buff = { locked = true }, remind = { locked = true }, ranks = { enabled = false } }))
     assert(not badge:IsShown() and not EUICT_CD.items[1]:IsShown())
     for _, key in ipairs({ "cd", "buff", "remind" }) do
-        local root = ns.TrackerRoot(key); assert(not root:IsMouseEnabled() and not root.bg:IsShown())
+        local root = ns.TrackerFrames.Root(key); assert(not root:IsMouseEnabled() and not root.bg:IsShown())
     end
     assert(EUICT_DBC == db and EUICT_DB == account and account.chars["test-character"] == db)
     assert(db.cd == cd and db.buff == buff and db.remind == remind and db.ranks == ranks)
@@ -94,5 +93,5 @@ Test("maximum-length import name collisions remain exportable", function()
     local second = name:sub(1, V.Limits.name - 2) .. " 2"
     local row = assert(M.Find(libraryBlock, "FontString", second)).parent
     M.Click(row.share)
-    assert(ns.DecodeProfile(text:GetText()).name == second)
+    assert(ns.ProfileCodec.Decode(text:GetText()).name == second)
 end)

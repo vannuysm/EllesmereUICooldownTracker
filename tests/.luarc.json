@@ -1,0 +1,29 @@
+{
+    "$schema": "https://raw.githubusercontent.com/LuaLS/vscode-lua/master/setting/schema.json",
+    "runtime.version": "Lua 5.1",
+    "runtime.builtin": {
+        "basic": "enable",
+        "debug": "enable",
+        "io": "enable",
+        "math": "enable",
+        "os": "enable",
+        "package": "enable",
+        "string": "enable",
+        "table": "enable"
+    },
+    "workspace.library": [],
+    "diagnostics.globals": [
+        "TEST_REPO_ROOT",
+        "TEST_ADDON_ROOT",
+        "issecretvalue",
+        "wipe",
+        "RESET",
+        "EUICT_DB",
+        "EUICT_DBC",
+        "EUICT_CD",
+        "EUICT_Buff",
+        "EUICT_Remind",
+        "EUICT_ProfileDialog",
+        "EUICT_ProfileMenu"
+    ]
+}

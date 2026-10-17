@@ -29,7 +29,6 @@ Each list provides:
 - A floating label and insertion line showing where an entry will land.
 - A **Remove** button at the far right of each row.
 - Cancellation when a drag is released outside the list or the page is hidden.
-- Protection against editing an outdated list after settings or a profile change.
 
 ### Orientation and growth direction
 
@@ -51,7 +50,7 @@ The cooldown tracker and buff bars offer three visibility choices: **Always**, *
 
 ### Range dimming and ready glows
 
-Cooldown icons can dim spells that are out of range of the current target and glow when spells are ready during combat. Both features can be toggled independently. Ready glows follow **EllesmereUI Action Bars > Bar Animations > Custom Proc Glow**, including its enabled state and style settings. A simple edge highlight provides a standalone fallback when the EllesmereUI glow engine is unavailable.
+Cooldown icons can dim spells that are out of range of the current target and glow when spells are ready during combat. Both features can be toggled independently. Ready glows follow **EllesmereUI Action Bars > Bar Animations > Custom Proc Glow**, including its enabled state and style settings.
 
 ### EllesmereUI settings and previews
 
@@ -79,9 +78,6 @@ switch immediately, or open its **…** menu to **Rename**,
 names are rejected. Deleting a saved profile requires confirmation and keeps
 character settings intact. The library is shared
 with this addon's standalone Profiles page.
-The rows and active-profile banner show the results of profile actions directly;
-there are no additional success announcements. Errors stay in the relevant dialog
-or beside the import/export controls.
 
 The **Import / Export** tab has separate text boxes. Choose **Current settings**
 or a saved profile from the **Profile** dropdown. The
@@ -90,7 +86,7 @@ click the text box to select it again. A row's **Export** action opens this tab 
 that profile selected and its export ready. Paste an FCPT or fork export and click **Preview import** to
 inspect its name, class, and tracked-entry counts before adding it. If its name exists,
 choose **Overwrite**, **Keep both** with a unique numeric suffix, or **Cancel**.
-Imports retain the compatible `FCT1` format and do not activate automatically;
+Imported profiles do not activate automatically;
 **Use now** is an optional next step. Failed imports retain the pasted text. Without
 EllesmereUI, `/euict profiles` opens the standalone Profiles page.
 
@@ -102,100 +98,17 @@ Move buff bars, cooldown icons, and reminders through EllesmereUI Unlock Mode, w
 
 Adjust the spacing between reminder rows from the Reminders **Display** page, replacing the original fixed spacing.
 
-### Shared components
+### Importing your existing setup
 
-`OrderedList` and `TrackingEditor` in [EllesmereIntegration.lua](src/EllesmereIntegration.lua) implement the shared list and add controls. Each page supplies its settings list, labels, and matching explanation. Reordering, adding, and removing entries refresh the appropriate tracker and its EllesmereUI page cache.
-
-### A separate addon identity
-
-The fork installs as `EllesmereUICooldownTracker` and uses its own saved variables (`EUICT_DB` and `EUICT_DBC`), named frames, addon-compartment callback, slash commands, and integration registration keys. Its TOC also omits the original CurseForge project ID so addon managers do not associate the fork with the upstream release.
-
-Settings and profiles are stored separately from the original addon. To transfer a setup, export a profile from the original addon and import it on this fork's Profiles page; the shared `FCT1` profile format remains compatible.
-
-The EllesmereUI sidebar label is **Cooldown Tracker**.
+Settings and profiles are stored separately from the original addon. To transfer a setup, export a profile from the original addon and import it on this fork's Profiles page.
 
 ## Installation and use
 
-1. Extract a packaged release into your WoW installation's `Interface/AddOns` folder. For a source checkout, copy the contents of `src` into `Interface/AddOns/EllesmereUICooldownTracker`, with `EllesmereUICooldownTracker.toc` directly inside it; also include `LICENSE` from the repository root.
+1. Extract a packaged release into your WoW installation's `Interface/AddOns` folder.
 2. Enable **EllesmereUI** to use the integrated settings pages. **EllesmereUIActionBars** is optional and supplies the appearance and glow settings used by the integration.
 3. Run `/reload`, open EllesmereUI, and select **Cooldown Tracker** to manage the tracking lists.
 
 The underlying addon also provides its standalone settings through `/euict` or `/ellesmerecooldowns` when EllesmereUI is unavailable.
-
-## Local packaging and deployment
-
-Addon Lua files and the TOC live in `src`; tests, development tools, and release
-configuration remain at the repository root. TOC entries stay relative to the TOC.
-The root `.pkgmeta` uses `package-as: EllesmereUICooldownTracker` and maps
-`EllesmereUICooldownTracker/src` to `EllesmereUICooldownTracker` with `move-folders`.
-Both [CurseForge](https://support.curseforge.com/support/solutions/articles/9000197952-preparing-the-packagemeta-file)
-and [BigWigsMods Packager](https://github.com/BigWigsMods/packager/wiki/Preparing-the-PackageMeta-File)
-require the package name in the move source. This flattens `src` in the release,
-keeping the TOC and Lua files directly inside the installed addon folder alongside
-`LICENSE`. Run packaging from the repository root so `.pkgmeta` is read.
-
-Run the deployment script with a WoW root or client directory:
-
-```powershell
-uv run --locked python scripts/deploy.py "C:\Program Files (x86)\World of Warcraft\_retail_"
-```
-
-Alternatively, copy `.env.example` to `.env`, set `WOW_PATH`, then run:
-
-```powershell
-uv run --locked python scripts/deploy.py
-```
-
-The command-line path takes priority over `.env`. The script reads `.env` from
-the repository, regardless of the working directory. Relative paths are resolved
-from the repository. It supports quoted paths, literal Windows backslashes, and
-comments.
-
-When passing the WoW root, the script selects `_retail_` by default. To deploy to
-another client, use `--client`, for example:
-
-```powershell
-uv run --locked python scripts/deploy.py "C:\Program Files (x86)\World of Warcraft" --client _classic_beta_
-```
-
-You can also use `python scripts/deploy.py` directly with Python 3.12 or newer.
-Local packaging uses [BigWigsMods Packager](https://github.com/BigWigsMods/packager),
-with the exact commit and arguments read from `.github/workflows/release.yml`.
-The script downloads and caches that revision's `release.sh` under `.release/tools/`
-on its first run. Local builds generate a separate `release-local.sh` from that
-pinned script, changing its Git exclusion query to include untracked source files
-while still honoring `.gitignore` and `.pkgmeta`. New addon files can be deployed
-without staging them. The cached upstream script, Git index, and release workflow
-remain unchanged; keyword processing, version substitutions, and changelog generation
-still use Packager. The script rejects an upstream filter change rather than silently
-applying an outdated adaptation.
-
-The deployment script checks that every file listed in the packaged TOC exists
-before replacing the installed addon. An incomplete package reports the missing
-file and leaves the existing installation in place.
-
-Install Bash 4.3 or newer, Git, awk, grep, sed, and curl. On Windows, install Git
-for Windows; its Git Bash is detected automatically. You can select another Bash
-executable with `--bash "C:\path\to\bash.exe"`. On macOS, use a current Bash rather
-than the system's Bash 3.2. Packager also reads `.env` as a Bash file, so keep its
-assignments compatible with Bash; `.env.example` provides a suitable format.
-
-The script runs Packager with `-d` (disable uploads) and `-z` (skip zip creation),
-then deploys the prepared `.release/local/EllesmereUICooldownTracker` directory.
-CI zip creation wraps these same processed addon files. Local deployment does
-not require `zip` or upload credentials. Package exclusions come from `.pkgmeta`.
-
-Deployment replaces the existing `Interface/AddOns/EllesmereUICooldownTracker`
-directory only after packaging succeeds, removing stale addon files. Saved settings
-in `WTF` and other addons are preserved. Run `/reload` after deployment; a newly installed addon may require
-restarting the client and enabling it in the addon list.
-
-## Development tests
-
-Use `uv run --locked pytest` to run the Python-managed Lua unit, regression, and
-performance suite. Tests are organized under `tests/unit` and `tests/performance`
-and run on Lua 5.1 and LuaJIT. The [test guide](tests/README.md) documents focused
-runs, portable fixtures, performance reports, PR CI, and remaining in-game checks.
 
 ## License
 

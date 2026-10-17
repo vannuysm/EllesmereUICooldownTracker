@@ -6,13 +6,16 @@ from zipfile import ZipFile
 
 from deploy import ADDON, ROOT, validate_package
 
+# Editor configuration kept beside the sources and excluded by .pkgmeta.
+EDITOR_FILES = {".luarc.json"}
+
 
 def verify_package(release_directory: Path) -> None:
     package = release_directory / ADDON
     validate_package(package)
     source_directory = ROOT / "src"
     for source in source_directory.rglob("*"):
-        if source.is_file():
+        if source.is_file() and source.name not in EDITOR_FILES:
             relative = source.relative_to(source_directory)
             assert (package / relative).is_file(), f"Missing packaged source: {relative}"
     assert (package / "LICENSE").is_file()

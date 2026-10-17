@@ -12,6 +12,9 @@ local told = {}       -- "slot:spellID" -> true, so each outdated button is ment
 local pending = false -- an update waits for combat to end
 
 local function Plain(v, kind) return type(v) == kind and not (issecretvalue and issecretvalue(v)) end
+-- Fallback for clients without C_SpellBook.IsSpellKnown; retail deprecates it, so it is used only from here.
+---@diagnostic disable-next-line: deprecated
+local IsPlayerSpell = IsPlayerSpell
 local function Known(id)
     if C_SpellBook and C_SpellBook.IsSpellKnown then
         local ok, known = pcall(C_SpellBook.IsSpellKnown, id)

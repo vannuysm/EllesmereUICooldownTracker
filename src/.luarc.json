@@ -1,0 +1,38 @@
+{
+    "$schema": "https://raw.githubusercontent.com/LuaLS/vscode-lua/master/setting/schema.json",
+    "runtime.version": "Lua 5.1",
+    "runtime.builtin": {
+        "basic": "disable",
+        "debug": "disable",
+        "io": "disable",
+        "math": "disable",
+        "os": "disable",
+        "package": "disable",
+        "string": "disable",
+        "table": "disable",
+        "utf8": "disable"
+    },
+    "diagnostics.globals": [
+        "ADD",
+        "DELETE",
+        "EditModeManagerFrame",
+        "GameTooltip_Hide",
+        "LOCALIZED_CLASS_NAMES_MALE",
+        "MinimalSliderWithSteppersMixin",
+        "RAID_CLASS_COLORS",
+        "ReloadUI",
+        "RESET",
+        "Settings",
+        "SettingsPanel",
+        "SlashCmdList",
+        "SOUNDKIT",
+        "TARGET",
+        "EllesmereUI",
+        "ForeverData",
+        "EUICT_CD",
+        "EUICT_Buff",
+        "EUICT_Remind",
+        "EUICT_ProfileDialog",
+        "EUICT_ProfileMenu"
+    ]
+}
